@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WarEra · živi podaci (test)</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root{ --bg:#0F1117; --panel:#171A22; --panel2:#1E222C; --line:#2B313B; --ink:#EAE8E0; --ink2:#AAB0BA; --dim:#6B717D; --crven:#CE1126; --zlato:#D6A22E; --zelena:#5E8C4E; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:'Barlow',sans-serif; border-top:3px solid var(--crven); }
+  .wrap{ max-width:900px; margin:0 auto; padding:22px 18px 60px; }
+  h1{ font-family:'Oswald',sans-serif; font-size:28px; letter-spacing:1.5px; font-weight:700; margin:0; }
+  .eyebrow{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:2px; color:var(--dim); text-transform:uppercase; }
+  .bar{ display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin:18px 0 6px; }
+  label{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:1px; color:var(--dim); text-transform:uppercase; display:block; margin-bottom:5px; }
+  input{ background:var(--bg); border:1px solid var(--line); color:var(--ink); font-family:'IBM Plex Mono',monospace; font-size:13px; padding:9px 11px; border-radius:2px; outline:none; }
+  input:focus{ border-color:var(--crven); }
+  button{ background:var(--crven); border:none; color:#fff; font-family:'Oswald',sans-serif; font-size:14px; font-weight:600; letter-spacing:1px; text-transform:uppercase; padding:10px 16px; border-radius:2px; cursor:pointer; transition:filter .14s ease, transform .08s ease; }
+  button:hover{ filter:brightness(1.12); } button:active{ transform:translateY(1px); }
+  button.ghost{ background:transparent; border:1px solid var(--line); color:var(--ink2); }
+  section{ margin-top:26px; }
+  .h2{ font-family:'Oswald',sans-serif; font-size:22px; letter-spacing:1px; font-weight:700; margin:2px 0 12px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--zlato); border-radius:4px; padding:13px 15px; margin-bottom:10px; }
+  .card a{ color:var(--ink); font-family:'Oswald',sans-serif; font-size:18px; font-weight:600; letter-spacing:.5px; text-decoration:none; }
+  .card a:hover{ color:var(--zlato); }
+  .meta{ font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--ink2); margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; }
+  .tag{ font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:600; letter-spacing:1px; padding:2px 6px; border-radius:2px; border:1px solid var(--line); color:var(--dim); text-transform:uppercase; }
+  details{ margin-top:8px; } summary{ cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--dim); }
+  pre{ background:var(--panel2); border:1px solid var(--line); border-radius:3px; padding:10px; overflow:auto; font-size:11px; color:var(--ink2); max-height:280px; }
+  .muted{ color:var(--dim); font-family:'IBM Plex Mono',monospace; font-size:13px; }
+  .err{ color:var(--crven); font-family:'IBM Plex Mono',monospace; font-size:12px; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; }
+  .member{ background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:8px 10px; font-size:13px; }
+  .mono{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">War Era · test živih podataka</div>
+  <h1>ŽIVE BITKE I ROSTER</h1>
+  <p class="muted" style="margin-top:8px">Ova stranica zove tvoj proxy (warera-proxy.mjs), a proxy zove War Era API. Pokreni proxy pa upiši njegov URL.</p>
+
+  <div class="bar">
+    <div><label>URL proxyja</label><input id="base" value="http://localhost:8787" style="width:260px" /></div>
+    <div><label>Limit</label><input id="limit" value="20" style="width:80px" /></div>
+    <button id="btnBattles">Dohvati aktivne bitke</button>
+  </div>
+  <section id="battlesWrap">
+    <div class="h2">Aktivne bitke</div>
+    <div id="battles" class="muted">Klikni „Dohvati aktivne bitke“.</div>
+  </section>
+
+  <section>
+    <div class="h2">MU roster</div>
+    <div class="bar" style="margin-top:0">
+      <div><label>muId</label><input id="muId" placeholder="id vojne jedinice" style="width:260px" /></div>
+      <button id="btnRoster" class="ghost">Dohvati roster</button>
+    </div>
+    <div id="roster" class="muted">Upiši muId (npr. iz app.warera.io/mu/&lt;id&gt;) i dohvati članove.</div>
+  </section>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const base = () => $("base").value.replace(/\/+$/, "");
+
+  function esc(s){ return String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+  async function jget(path){
+    const r = await fetch(base() + path);
+    const data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  }
+
+  $("btnBattles").onclick = async () => {
+    const box = $("battles");
+    box.className = "muted"; box.textContent = "Dohvaćam…";
+    try {
+      const { battles } = await jget("/api/battles?limit=" + encodeURIComponent($("limit").value || "20"));
+      if (!battles || !battles.length){ box.textContent = "Nema aktivnih bitaka (ili API nije vratio ništa)."; return; }
+      box.className = "";
+      box.innerHTML = battles.map(b => {
+        const id = b._id || "";
+        const name = b.name || b.region || (id ? ("Bitka " + id.slice(-6)) : "Bitka");
+        const active = b.isActive !== false;
+        const bits = [];
+        if (b.type) bits.push("tip: " + esc(b.type));
+        if (b.war) bits.push("rat: " + esc(String(b.war).slice(-6)));
+        return `<div class="card">
+          <a href="${esc(b.url || ("https://app.warera.io/battle/" + id))}" target="_blank" rel="noopener">${esc(name)}</a>
+          <span class="tag" style="margin-left:8px;color:${active ? 'var(--zelena)' : 'var(--dim)'};border-color:${active ? 'var(--zelena)' : 'var(--line)'}">${active ? "aktivna" : "gotova"}</span>
+          <div class="meta"><span class="mono">${esc(id)}</span>${bits.map(x=>`<span>${x}</span>`).join("")}</div>
+          <details><summary>sirovi JSON</summary><pre>${esc(JSON.stringify(b, null, 2))}</pre></details>
+        </div>`;
+      }).join("");
+    } catch (e) {
+      box.className = "err"; box.textContent = "Greška: " + e.message + "  (je li proxy pokrenut i URL točan?)";
+    }
+  };
+
+  $("btnRoster").onclick = async () => {
+    const box = $("roster");
+    const id = $("muId").value.trim();
+    if (!id){ box.className="muted"; box.textContent="Upiši muId."; return; }
+    box.className = "muted"; box.textContent = "Dohvaćam…";
+    try {
+      const data = await jget("/api/mu/" + encodeURIComponent(id) + "/roster");
+      const mu = data.mu || {};
+      const members = data.members || [];
+      box.className = "";
+      box.innerHTML =
+        `<div class="card" style="border-left-color:var(--crven)">
+           <a href="https://app.warera.io/mu/${esc(mu.id||id)}" target="_blank" rel="noopener">${esc(mu.name || "Vojna jedinica")}</a>
+           <div class="meta"><span>${members.length} dohvaćenih članova</span><span class="mono">${esc(mu.id||id)}</span></div>
+         </div>` +
+        (members.length ? `<div class="grid">${members.map(m=>`<div class="member">${esc(m.username || "(bez imena)")}<div class="mono">${esc(m.userId)}</div></div>`).join("")}</div>` : `<div class="muted">Nema članova u odgovoru.</div>`);
+    } catch (e) {
+      box.className = "err"; box.textContent = "Greška: " + e.message;
+    }
+  };
+</script>
+</body>
+</html>

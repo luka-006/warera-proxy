@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Zapovjedni centar</title>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #0F1117; }
+  #root { min-height: 100vh; }
+  * { scrollbar-width: thin; scrollbar-color: #333A45 #0F1117; box-sizing: border-box; }
+  input:focus, textarea:focus, select:focus { border-color: #CE1126 !important; }
+  button:focus-visible { outline: 2px solid #CE1126; outline-offset: 2px; }
+  textarea { resize: vertical; }
+  select, input[type="datetime-local"] { color-scheme: dark; appearance: none; }
+  a { color: inherit; }
+
+  button { transition: filter .14s ease, transform .08s ease, border-color .15s ease, color .15s ease; }
+  button:hover { filter: brightness(1.12); }
+  button:active { transform: translateY(1px); }
+
+  a.linkbtn, a.battle { transition: box-shadow .16s ease, transform .13s ease, background .15s ease; }
+  a.linkbtn:hover, a.battle:hover { box-shadow: inset 0 0 0 1px #CE1126; transform: translateY(-1px); }
+
+  .card { animation: fadeUp .34s cubic-bezier(.2,.7,.2,1) backwards; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,.45); border-color: #3B4250; }
+  .card-past { animation: fadeUp .34s ease backwards; transition: opacity .2s ease, border-color .18s ease; }
+  .card-past:hover { opacity: .82 !important; }
+
+  .view { animation: fadeIn .28s ease; }
+  .dd { animation: popIn .15s ease; transform-origin: top left; }
+  .dd-item { transition: box-shadow .12s ease; }
+  .dd-item:hover { box-shadow: inset 0 0 0 999px rgba(255,255,255,.05); }
+
+  .coll { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .26s ease, opacity .24s ease; }
+  .coll.open { grid-template-rows: 1fr; opacity: 1; }
+  .coll-inner { overflow: hidden; min-height: 0; }
+
+  .chev { display: inline-block; transition: transform .22s ease; }
+  .chev.open { transform: rotate(180deg); }
+
+  .hrow { transition: box-shadow .12s ease; }
+  .hrow:hover { box-shadow: inset 3px 0 0 #CE1126, inset 0 0 0 999px rgba(255,255,255,.028); }
+  .head-btn { transition: background .14s ease; }
+  .head-btn:hover { background: rgba(255,255,255,.03); }
+
+  @keyframes fadeUp { from { opacity:0; transform: translateY(10px);} to { opacity:1; transform:none; } }
+  @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+  @keyframes popIn { from { opacity:0; transform: scale(.97) translateY(-6px);} to { opacity:1; transform:none; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+  .spin { display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,.25); border-top-color:#CE1126; border-radius:50%; animation: spin .7s linear infinite; }
+  .live { display:inline-block; width:7px; height:7px; border-radius:50%; background:#5E8C4E; animation: pulse 1.8s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { *, ::before, ::after { animation-duration:.001ms !important; transition-duration:.001ms !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useCallback, useRef, useMemo, useId } = React;
+
+// ---------------------------------------------------------------------------
+// SPREMIŠTE
+// ---------------------------------------------------------------------------
+const mem = {};
+function get(key, fb) { try { const r = window.localStorage.getItem(key); return r == null ? fb : JSON.parse(r); } catch { return key in mem ? mem[key] : fb; } }
+function set(key, val) { try { window.localStorage.setItem(key, JSON.stringify(val)); } catch { mem[key] = val; } }
+
+const K_MUS = "mu5-units", K_USERS = "mu5-users", K_PLANS = "mu5-plans", K_CHAT = "mu5-chat", K_SESSION = "mu5-session", K_DEVICE = "mu5-device", K_CFG = "mu5-config";
+const ROLES = ["admin", "zapovjednik", "vojnik"];
+const ROLE_LABEL = { admin: "Administrator", zapovjednik: "Zapovjednik", vojnik: "Vojnik" };
+const PRIORITETI = ["KRITIČNO", "VISOKO", "REDOVNO"];
+const CHAT_LIMIT = 300;
+const OSVJEZI_MS = 30000; // bitke uživo
+
+// ---------------------------------------------------------------------------
+// SJEME
+// ---------------------------------------------------------------------------
+const H = 3600 * 1000, now = Date.now();
+const MOCK_MUS = [{ id: "m1", naziv: "1. Gardijska bojna", tag: "1.GB", wareraMuId: "" }, { id: "m2", naziv: "Sokolovi", tag: "SOK", wareraMuId: "" }];
+const MOCK_USERS = [
+  { id: "u0", ime: "Luka", role: "admin", muId: null, password: "admin" },
+  { id: "u1", ime: "Marko", role: "zapovjednik", muId: "m1", password: "marko" },
+  { id: "u2", ime: "Ivan", role: "zapovjednik", muId: "m1", password: "ivan" },
+  { id: "u3", ime: "Ante", role: "vojnik", muId: "m1", password: "ante" },
+  { id: "u4", ime: "Josip", role: "vojnik", muId: "m1", password: "josip" },
+  { id: "u5", ime: "Petar", role: "vojnik", muId: "m1", password: null },
+  { id: "u6", ime: "Nikola", role: "zapovjednik", muId: "m2", password: "nikola" },
+];
+const MOCK_PLANS = [
+  { id: "p1", muId: "m1", naziv: "Bitka za Zadar", opis: "Svi napadamo u navedeno vrijeme. Čuvajte oružje za zadnjih sat. Javite štetu u porukama.", link: "https://warera.io", prioritet: "VISOKO", ts: now + 6 * H, autor: "Marko", created: now - 2 * H },
+  { id: "p2", muId: "m1", naziv: "Obrana Slavonije", opis: "Držimo liniju na istoku. Fokus na obranu, ne trošite energiju dok ne stigne signal.", link: "https://warera.io", prioritet: "KRITIČNO", ts: now + 30 * H, autor: "Ivan", created: now - 1 * H },
+  { id: "p3", muId: "m1", naziv: "Napad na Knin", opis: "Odrađeno. Dobar koordiniran napad, hvala svima.", link: "https://warera.io", prioritet: "VISOKO", ts: now - 3 * H, autor: "Marko", created: now - 8 * H },
+  { id: "p5", muId: "m2", naziv: "Patrola granice", opis: "Redovna patrola, bez većih sukoba.", link: "https://warera.io", prioritet: "REDOVNO", ts: now + 12 * H, autor: "Nikola", created: now - 2 * H },
+];
+const MOCK_CHAT = [
+  { id: "c1", muId: "m1", author: "Marko", text: "Zapovjednici, večeras Zadar u 20h. Uskladite napad.", ts: now - 90 * 60000 },
+  { id: "c2", muId: "m1", author: "Ivan", text: "Primljeno. Ja vodim lijevo krilo.", ts: now - 70 * 60000 },
+  { id: "c3", muId: "m2", author: "Nikola", text: "Sokolovi, patrola po rasporedu.", ts: now - 50 * 60000 },
+];
+if (!get(K_USERS, null)) { set(K_MUS, MOCK_MUS); set(K_USERS, MOCK_USERS); set(K_PLANS, MOCK_PLANS); set(K_CHAT, MOCK_CHAT); }
+
+// ---------------------------------------------------------------------------
+// POMOĆNE
+// ---------------------------------------------------------------------------
+function utcStamp(ts) { const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`; }
+function hhmm(ts) { const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function safeUrl(u) { const s = (u || "").trim(); return !s ? "" : (/^https?:\/\//i.test(s) ? s : "https://" + s); }
+function inputToUtc(s) { if (!s) return null; const [dp, tp] = s.split("T"); if (!tp) return null; const [y, mo, d] = dp.split("-").map(Number); const [h, mi] = tp.split(":").map(Number); return Date.UTC(y, mo - 1, d, h, mi); }
+async function apiGet(base, path) {
+  const b = (base || "").replace(/\/+$/, "");
+  if (!b) throw new Error("Proxy URL nije postavljen (Administracija › Živi podaci).");
+  const r = await fetch(b + path);
+  let d; try { d = await r.json(); } catch { throw new Error("Neispravan odgovor s proxyja (HTTP " + r.status + ")."); }
+  if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
+  return d;
+}
+function useStored(key, fb) {
+  const [val, setVal] = useState(() => get(key, fb));
+  useEffect(() => { const on = (e) => { if (e.key === key || e.key === null) setVal(get(key, fb)); }; window.addEventListener("storage", on); return () => window.removeEventListener("storage", on); }, [key]);
+  const save = useCallback((next) => { set(key, next); setVal(next); }, [key]);
+  return [val, save];
+}
+
+// ---------------------------------------------------------------------------
+// DIZAJN
+// ---------------------------------------------------------------------------
+const C = {
+  bg: "#0F1117", panel: "#171A22", panel2: "#1E222C", line: "#2B313B", lineSoft: "#22272F",
+  ink: "#EAE8E0", ink2: "#AAB0BA", dim: "#6B717D",
+  crven: "#CE1126", crvenD: "#8A0E1C", zlato: "#D6A22E", zelena: "#5E8C4E",
+  display: "'Oswald','Barlow Condensed',sans-serif", sans: "'Barlow','Helvetica Neue',sans-serif", mono: "'IBM Plex Mono','Courier New',monospace",
+};
+const prioBoja = { "KRITIČNO": C.crven, "VISOKO": C.zlato, "REDOVNO": C.ink2 };
+const inp = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink, fontFamily: C.mono, fontSize: 13, padding: "9px 11px", outline: "none", width: "100%", borderRadius: 2 };
+const btn = { background: C.crven, border: "none", color: "#fff", fontFamily: C.display, fontSize: 14, fontWeight: 600, letterSpacing: 1, textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", borderRadius: 2 };
+const btnGhost = { ...btn, background: "transparent", border: `1px solid ${C.line}`, color: C.ink2 };
+const btnDanger = { ...btnGhost, color: C.crven, borderColor: C.crvenD };
+const eyebrow = { fontFamily: C.mono, fontSize: 10.5, letterSpacing: 2, color: C.dim, textTransform: "uppercase" };
+
+function Polje({ label, children, style }) {
+  return (<div style={style}><label style={{ fontFamily: C.mono, fontSize: 10.5, color: C.dim, letterSpacing: 1.2, textTransform: "uppercase" }}>{label}</label><div style={{ marginTop: 6 }}>{children}</div></div>);
+}
+function Tag({ children, color, dot }) {
+  return (<span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: C.mono, fontSize: 10, fontWeight: 600, letterSpacing: 1, color: color || C.dim, border: `1px solid ${color || C.line}`, borderRadius: 2, padding: "2px 6px", textTransform: "uppercase" }}>{dot && <span style={{ width: 6, height: 6, borderRadius: "50%", background: color || C.dim, display: "inline-block" }} />}{children}</span>);
+}
+function Chevron({ open, color }) { return <span className={"chev" + (open ? " open" : "")} style={{ fontSize: 11, color: color || C.crven }}>▾</span>; }
+function Collapsible({ open, children }) { return <div className={"coll" + (open ? " open" : "")}><div className="coll-inner">{children}</div></div>; }
+
+// ---------------------------------------------------------------------------
+// ZASTAVA REPUBLIKE HRVATSKE (cijela slika, ugrađena u datoteku)
+// Kad stigne MU logo, zamijeni ZASTAVA konstantu svojom slikom.
+// ---------------------------------------------------------------------------
+const ZASTAVA = "data:image/jpeg;base64,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";
+
+function Grb({ size = 46, sirina }) {
+  const w = sirina || Math.round(size * 1.7);
+  return (
+    <img src={ZASTAVA} alt="Zastava Republike Hrvatske"
+      style={{ width: w, height: "auto", display: "block", borderRadius: 2,
+               border: `1px solid ${C.line}`, boxShadow: "0 3px 10px rgba(0,0,0,.45)" }} />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// APP
+// ---------------------------------------------------------------------------
+function App() {
+  const [mus, setMus] = useStored(K_MUS, []);
+  const [users, setUsers] = useStored(K_USERS, []);
+  const [cfg, setCfg] = useStored(K_CFG, { proxyUrl: "" });
+  const [me, setMe] = useState(() => { const id = get(K_SESSION, null); return id ? get(K_USERS, []).find((u) => u.id === id) || null : null; });
+
+  useEffect(() => {
+    if (!me) return;
+    const fresh = users.find((u) => u.id === me.id);
+    if (!fresh) { setMe(null); set(K_SESSION, null); }
+    else if (JSON.stringify(fresh) !== JSON.stringify(me)) setMe(fresh);
+  }, [users]);
+
+  const prijava = (u) => { setMe(u); set(K_SESSION, u.id); set(K_DEVICE, u.ime); };
+  const odjava = () => { setMe(null); set(K_SESSION, null); };
+
+  return (
+    <div style={{ minHeight: "100vh", color: C.ink, fontFamily: C.sans, borderTop: `3px solid ${C.crven}`, background: "radial-gradient(1100px 340px at 50% -100px, #191D27, #0F1117 60%)" }}>
+      {me ? <Shell me={me} mus={mus} setMus={setMus} users={users} setUsers={setUsers} cfg={cfg} setCfg={setCfg} onLogout={odjava} />
+          : <Prijava users={users} setUsers={setUsers} onLogin={prijava} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PRIJAVA
+// ---------------------------------------------------------------------------
+function Prijava({ users, setUsers, onLogin }) {
+  const [mode, setMode] = useState("login");
+  const [ime, setIme] = useState(get(K_DEVICE, ""));
+  const [lozinka, setLozinka] = useState(""); const [l2, setL2] = useState(""); const [err, setErr] = useState("");
+  const login = () => {
+    const u = users.find((x) => x.ime.toLowerCase() === ime.trim().toLowerCase());
+    if (!u || u.password == null) return setErr("Nisi aktiviran ili ne postojiš. Klikni „Prvi put se prijavljuješ?“.");
+    if (u.password !== lozinka) return setErr("Pogrešna lozinka.");
+    onLogin(u);
+  };
+  const aktiviraj = () => {
+    const u = users.find((x) => x.ime.toLowerCase() === ime.trim().toLowerCase());
+    if (!u) return setErr("Tvoje ime nije na listi. Javi se administratoru jedinice.");
+    if (u.password != null) return setErr("Već si aktiviran. Prijavi se lozinkom.");
+    if (!lozinka.trim()) return setErr("Upiši lozinku.");
+    if (lozinka !== l2) return setErr("Lozinke se ne poklapaju.");
+    setUsers(users.map((x) => x.id === u.id ? { ...x, password: lozinka } : x));
+    onLogin({ ...u, password: lozinka });
+  };
+  return (
+    <div style={{ maxWidth: 400, margin: "10vh auto 0", padding: 24 }} className="view">
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 26 }}>
+        <Grb sirina={300} />
+        <div style={{ ...eyebrow, marginTop: 18 }}>War Era · Republika Hrvatska</div>
+        <h1 style={{ fontFamily: C.display, fontSize: 36, margin: "3px 0 0", letterSpacing: 2, fontWeight: 700 }}>ZAPOVJEDNI CENTAR</h1>
+      </div>
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 5, padding: 22, boxShadow: "0 14px 44px rgba(0,0,0,.45)" }}>
+        {mode === "login" ? (<>
+          <Polje label="Korisničko ime"><input style={inp} value={ime} autoFocus onChange={(e) => { setIme(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && login()} /></Polje>
+          <Polje label="Lozinka" style={{ marginTop: 14 }}><input style={inp} type="password" value={lozinka} onChange={(e) => { setLozinka(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && login()} /></Polje>
+          {err && <div style={{ color: C.crven, fontFamily: C.mono, fontSize: 12, marginTop: 12 }}>{err}</div>}
+          <button style={{ ...btn, width: "100%", marginTop: 18 }} onClick={login}>Prijavi se</button>
+          <button style={{ background: "none", border: "none", color: C.ink2, fontFamily: C.mono, fontSize: 12, marginTop: 14, cursor: "pointer", textDecoration: "underline", width: "100%" }} onClick={() => { setMode("aktivacija"); setErr(""); setLozinka(""); setL2(""); }}>Prvi put se prijavljuješ?</button>
+        </>) : (<>
+          <div style={{ fontFamily: C.display, fontSize: 20, letterSpacing: 1, fontWeight: 600, marginBottom: 4 }}>Prva prijava</div>
+          <p style={{ color: C.ink2, fontSize: 13, margin: "0 0 16px" }}>Upiši svoje ime onako kako te administrator dodao i postavi lozinku.</p>
+          <Polje label="Ime (kako te admin dodao)"><input style={inp} value={ime} autoFocus onChange={(e) => { setIme(e.target.value); setErr(""); }} /></Polje>
+          <Polje label="Nova lozinka" style={{ marginTop: 14 }}><input style={inp} type="password" value={lozinka} onChange={(e) => { setLozinka(e.target.value); setErr(""); }} /></Polje>
+          <Polje label="Potvrdi lozinku" style={{ marginTop: 14 }}><input style={inp} type="password" value={l2} onChange={(e) => { setL2(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && aktiviraj()} /></Polje>
+          {err && <div style={{ color: C.crven, fontFamily: C.mono, fontSize: 12, marginTop: 12 }}>{err}</div>}
+          <button style={{ ...btn, width: "100%", marginTop: 18 }} onClick={aktiviraj}>Postavi lozinku i uđi</button>
+          <button style={{ background: "none", border: "none", color: C.ink2, fontFamily: C.mono, fontSize: 12, marginTop: 14, cursor: "pointer", textDecoration: "underline", width: "100%" }} onClick={() => { setMode("login"); setErr(""); }}>Natrag na prijavu</button>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DROPDOWN JEDINICA
+// ---------------------------------------------------------------------------
+function MuDropdown({ mus, muId, onSelect, onCreate }) {
+  const [open, setOpen] = useState(false); const [adding, setAdding] = useState(false);
+  const [naziv, setNaziv] = useState(""); const [tag, setTag] = useState("");
+  const ref = useRef(null);
+  useEffect(() => { const d = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setAdding(false); } }; document.addEventListener("mousedown", d); return () => document.removeEventListener("mousedown", d); }, []);
+  const cur = mus.find((m) => m.id === muId);
+  const create = () => { if (!naziv.trim()) return; const id = onCreate(naziv.trim(), tag.trim()); setNaziv(""); setTag(""); setAdding(false); setOpen(false); if (id) onSelect(id); };
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ ...btnGhost, display: "flex", alignItems: "center", gap: 10, fontFamily: C.display, fontSize: 16, letterSpacing: 0.5, padding: "8px 12px", color: C.ink }}>
+        <span>{cur ? cur.naziv : "Odaberi jedinicu"}</span>{cur && <span style={{ fontFamily: C.mono, fontSize: 10, color: C.dim }}>{cur.tag}</span>}<Chevron open={open} />
+      </button>
+      {open && (
+        <div className="dd" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 250, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 5, boxShadow: "0 16px 38px rgba(0,0,0,.5)", zIndex: 30, overflow: "hidden" }}>
+          {mus.map((m) => (
+            <button key={m.id} className="dd-item" onClick={() => { onSelect(m.id); setOpen(false); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "transparent", border: "none", borderLeft: `3px solid ${m.id === muId ? C.crven : "transparent"}`, color: C.ink, fontFamily: C.display, fontSize: 15, letterSpacing: 0.5, padding: "10px 12px", cursor: "pointer", textAlign: "left" }}>
+              <span>{m.naziv}</span><span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: C.mono, fontSize: 10, color: C.dim }}>{m.tag}</span>{m.id === muId && <span style={{ color: C.crven, fontSize: 12 }}>✓</span>}</span>
+            </button>
+          ))}
+          <div style={{ height: 1, background: C.line }} />
+          {!adding ? (
+            <button className="dd-item" onClick={() => setAdding(true)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: "transparent", border: "none", color: C.zlato, fontFamily: C.mono, fontSize: 12, letterSpacing: 1, padding: "10px 12px", cursor: "pointer", textTransform: "uppercase" }}><span style={{ fontSize: 16, lineHeight: 1 }}>＋</span> Nova jedinica</button>
+          ) : (
+            <div style={{ padding: 12, display: "grid", gap: 8 }}>
+              <input style={inp} autoFocus value={naziv} onChange={(e) => setNaziv(e.target.value)} placeholder="Naziv jedinice" onKeyDown={(e) => e.key === "Enter" && create()} />
+              <div style={{ display: "flex", gap: 8 }}><input style={{ ...inp, width: 110 }} value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Oznaka" onKeyDown={(e) => e.key === "Enter" && create()} /><button style={{ ...btn, flex: 1 }} onClick={create}>Kreiraj</button></div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OKVIR
+// ---------------------------------------------------------------------------
+function Shell({ me, mus, setMus, users, setUsers, cfg, setCfg, onLogout }) {
+  const jeAdmin = me.role === "admin";
+  const mozeObjaviti = me.role === "admin" || me.role === "zapovjednik";
+  const vidiPoruke = me.role === "admin" || me.role === "zapovjednik";
+
+  const [muId, setMuId] = useState(jeAdmin ? (mus[0] ? mus[0].id : null) : me.muId);
+  useEffect(() => { if (jeAdmin && !mus.find((m) => m.id === muId)) setMuId(mus[0] ? mus[0].id : null); }, [mus]);
+  useEffect(() => { if (!jeAdmin) setMuId(me.muId); }, [me.muId]);
+
+  const tabovi = [["ploca", "Nadzorna ploča"]];
+  if (mozeObjaviti) tabovi.push(["bitke", "Bitke uživo"]);
+  if (vidiPoruke) tabovi.push(["poruke", "Poruke"]);
+  if (jeAdmin) tabovi.push(["admin", "Administracija"]);
+  const [tab, setTab] = useState("ploca");
+  useEffect(() => { if (!tabovi.some((t) => t[0] === tab)) setTab("ploca"); });
+
+  const createMu = (naziv, tag) => { const id = newId(); setMus([...mus, { id, naziv: naziv.slice(0, 50), tag: (tag || "").slice(0, 8).toUpperCase() || "MU", wareraMuId: "" }]); return id; };
+  const otvoriMu = (id) => { setMuId(id); setTab("ploca"); };
+  const aktivnaMu = mus.find((m) => m.id === muId) || null;
+
+  // plan iz bitke: prebaci na ploču s predloškom
+  const [predlozak, setPredlozak] = useState(null);
+  const planIzBitke = (naziv, link) => { setPredlozak({ naziv, link, k: newId() }); setTab("ploca"); };
+
+  return (
+    <div style={{ maxWidth: 920, margin: "0 auto", padding: "0 18px 56px" }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 0 14px", borderBottom: `1px solid ${C.line}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <Grb sirina={76} />
+          <div><div style={eyebrow}>War Era · Vojna jedinica</div><div style={{ fontFamily: C.display, fontSize: 24, letterSpacing: 1.5, fontWeight: 700, lineHeight: 1.05 }}>ZAPOVJEDNI CENTAR</div></div>
+        </div>
+        <div style={{ fontFamily: C.mono, fontSize: 12, color: C.dim, textAlign: "right" }}>
+          <div style={{ color: C.ink, fontWeight: 600 }}>{me.ime}</div>
+          <div style={{ color: jeAdmin ? C.crven : C.dim }}>{ROLE_LABEL[me.role]}</div>
+          <button style={{ ...btnGhost, fontSize: 11, padding: "3px 10px", marginTop: 6 }} onClick={onLogout}>Odjava</button>
+        </div>
+      </header>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: `1px solid ${C.lineSoft}` }}>
+        <span style={eyebrow}>Jedinica</span>
+        {jeAdmin ? <MuDropdown mus={mus} muId={muId} onSelect={setMuId} onCreate={createMu} />
+          : <span style={{ fontFamily: C.display, fontSize: 18, letterSpacing: 0.5, fontWeight: 600 }}>{aktivnaMu ? aktivnaMu.naziv : "—"} {aktivnaMu && <span style={{ color: C.dim, fontSize: 13, fontFamily: C.mono }}>· {aktivnaMu.tag}</span>}</span>}
+      </div>
+
+      {tabovi.length > 1 ? (
+        <nav style={{ display: "flex", margin: "6px 0 22px", flexWrap: "wrap" }}>
+          {tabovi.map(([key, label]) => (<button key={key} onClick={() => setTab(key)} style={{ ...btnGhost, border: "none", borderBottom: tab === key ? `3px solid ${C.crven}` : "3px solid transparent", color: tab === key ? C.ink : C.dim, fontSize: 15, padding: "10px 16px" }}>{label}</button>))}
+        </nav>
+      ) : <div style={{ height: 22 }} />}
+
+      <div className="view" key={tab + ":" + muId}>
+        {tab === "ploca" && <Ploca me={me} muId={muId} mozeObjaviti={mozeObjaviti} predlozak={predlozak} />}
+        {tab === "bitke" && mozeObjaviti && <BitkeUzivo proxyUrl={cfg.proxyUrl} onMakePlan={planIzBitke} />}
+        {tab === "poruke" && vidiPoruke && <Poruke me={me} muId={muId} />}
+        {tab === "admin" && jeAdmin && <Admin me={me} mus={mus} setMus={setMus} users={users} setUsers={setUsers} cfg={cfg} setCfg={setCfg} onOpenMu={otvoriMu} />}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BITKE UŽIVO — sve trenutne bitke, auto-osvježavanje, direktni linkovi
+// ---------------------------------------------------------------------------
+function Drzava({ d, desno }) {
+  if (!d) return <span style={{ color: C.dim, fontFamily: C.mono, fontSize: 12 }}>—</span>;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, flexDirection: desno ? "row-reverse" : "row", minWidth: 0 }}>
+      <span style={{ fontSize: 19, lineHeight: 1 }}>{d.flag || "🏳"}</span>
+      <span style={{ fontFamily: C.display, fontSize: 16, fontWeight: 600, letterSpacing: 0.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name || (d.code || "?")}</span>
+    </span>
+  );
+}
+
+function BitkeUzivo({ proxyUrl, onMakePlan }) {
+  const [st, setSt] = useState({ loading: true, err: "", list: [], ts: null });
+  const [auto, setAuto] = useState(true);
+  const [filter, setFilter] = useState("");
+  const [drzave, setDrzave] = useState(null);
+  const [pokaziDrzave, setPokaziDrzave] = useState(false);
+
+  const load = useCallback((tiho) => {
+    setSt((s) => ({ ...s, loading: !tiho, err: tiho ? s.err : "" }));
+    apiGet(proxyUrl, "/api/battles?limit=200")
+      .then((d) => setSt({ loading: false, err: "", list: d.battles || [], ts: d.ts || Date.now() }))
+      .catch((e) => setSt((s) => ({ ...s, loading: false, err: e.message })));
+  }, [proxyUrl]);
+
+  useEffect(() => { load(false); }, [load]);
+  useEffect(() => { if (!auto) return; const t = setInterval(() => load(true), OSVJEZI_MS); return () => clearInterval(t); }, [auto, load]);
+
+  const ucitajDrzave = () => {
+    setPokaziDrzave((v) => !v);
+    if (drzave) return;
+    apiGet(proxyUrl, "/api/countries").then((d) => setDrzave(d.countries || [])).catch((e) => setDrzave({ err: e.message }));
+  };
+
+  const nazivBitke = (b) => {
+    if (b.napadac || b.branitelj) {
+      const a = (b.napadac && b.napadac.name) || "?", d = (b.branitelj && b.branitelj.name) || "?";
+      const r = b.regija && b.regija.name;
+      return r ? `${a} → ${d} (${r})` : `${a} → ${d}`;
+    }
+    return b.naziv || (b.id ? "Bitka " + String(b.id).slice(-6) : "Bitka");
+  };
+
+  const f = filter.trim().toLowerCase();
+  const lista = !f ? st.list : st.list.filter((b) => JSON.stringify([b.napadac, b.branitelj, b.regija, b.naziv]).toLowerCase().includes(f));
+
+  return (
+    <section>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        <div>
+          <div style={eyebrow}>War Era</div>
+          <h2 style={{ fontFamily: C.display, fontSize: 24, letterSpacing: 1, margin: "2px 0 0", fontWeight: 700, display: "flex", alignItems: "center", gap: 10 }}>
+            Bitke uživo {auto && <span className="live" title="automatsko osvježavanje" />}
+          </h2>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <input style={{ ...inp, width: 170 }} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filtriraj (država, regija)" />
+          <button style={{ ...btnGhost, fontSize: 11, padding: "7px 10px" }} onClick={() => load(false)}>Osvježi</button>
+          <button style={{ ...btnGhost, fontSize: 11, padding: "7px 10px", color: auto ? C.zelena : C.dim, borderColor: auto ? C.zelena : C.line }} onClick={() => setAuto((a) => !a)}>{auto ? "Auto ✓" : "Auto ✕"}</button>
+          <button style={{ ...btnGhost, fontSize: 11, padding: "7px 10px" }} onClick={ucitajDrzave}>Države</button>
+        </div>
+      </div>
+
+      {pokaziDrzave && (
+        <div className="view" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 5, padding: 14, marginBottom: 16 }}>
+          <div style={{ ...eyebrow, marginBottom: 10 }}>Sve države u igri</div>
+          {!drzave && <div style={{ color: C.dim, fontFamily: C.mono, fontSize: 12, display: "flex", gap: 8, alignItems: "center" }}><span className="spin" /> Dohvaćam…</div>}
+          {drzave && drzave.err && <div style={{ color: C.crven, fontFamily: C.mono, fontSize: 12 }}>✕ {drzave.err}</div>}
+          {Array.isArray(drzave) && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 6 }}>
+              {drzave.map((d) => (
+                <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, background: C.panel2, border: `1px solid ${C.lineSoft}`, borderRadius: 3, padding: "6px 9px" }}>
+                  <span style={{ fontSize: 17 }}>{d.flag || "🏳"}</span>
+                  <span style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {Array.isArray(drzave) && <div style={{ ...eyebrow, marginTop: 10 }}>ukupno {drzave.length}</div>}
+        </div>
+      )}
+
+      {st.loading && <div style={{ color: C.dim, fontFamily: C.mono, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}><span className="spin" /> Dohvaćam bitke…</div>}
+      {st.err && <div style={{ color: C.crven, fontFamily: C.mono, fontSize: 12.5, lineHeight: 1.6, background: C.panel, border: `1px solid ${C.crvenD}`, borderRadius: 4, padding: 12 }}>✕ {st.err}<br /><span style={{ color: C.dim }}>Provjeri je li proxy pokrenut i adresa točna (Administracija › Živi podaci).</span></div>}
+      {!st.loading && !st.err && lista.length === 0 && <div style={{ color: C.dim, fontFamily: C.mono, fontSize: 13 }}>{st.list.length ? "Nema bitaka za taj filter." : "Trenutno nema aktivnih bitaka."}</div>}
+
+      {lista.length > 0 && (
+        <div style={{ display: "grid", gap: 8 }}>
+          {lista.map((b, i) => (
+            <div key={b.id || i} className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: C.panel, border: `1px solid ${C.line}`, borderLeft: `3px solid ${b.isActive ? C.zelena : C.line}`, borderRadius: 4, padding: "10px 12px", animationDelay: Math.min(i, 10) * 30 + "ms" }}>
+              <a className="battle" href={b.url || "#"} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: C.ink, minWidth: 0, flex: 1, padding: "4px 6px", borderRadius: 3 }}>
+                <Drzava d={b.napadac} />
+                <span style={{ fontFamily: C.mono, fontSize: 12, color: C.crven, fontWeight: 600 }}>vs</span>
+                <Drzava d={b.branitelj} />
+                {b.regija && b.regija.name && <span style={{ fontFamily: C.mono, fontSize: 11, color: C.dim, whiteSpace: "nowrap" }}>· {b.regija.name}</span>}
+              </a>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
+                <a className="linkbtn" href={b.url || "#"} target="_blank" rel="noopener noreferrer" style={{ ...btnGhost, fontSize: 11, padding: "6px 10px", textDecoration: "none", display: "inline-block" }}>Otvori →</a>
+                <button style={{ ...btn, fontSize: 11, padding: "7px 11px" }} onClick={() => onMakePlan(nazivBitke(b), b.url || "")}>Plan</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {st.ts && <div style={{ ...eyebrow, marginTop: 12 }}>{lista.length} bitaka · zadnje osvježeno {hhmm(st.ts)}{auto ? ` · auto svakih ${OSVJEZI_MS / 1000}s` : ""}</div>}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NADZORNA PLOČA
+// ---------------------------------------------------------------------------
+const prazn = { naziv: "", opis: "", link: "", prioritet: "VISOKO", kada: "" };
+
+function Ploca({ me, muId, mozeObjaviti, predlozak }) {
+  const [plans, setPlans] = useStored(K_PLANS, []);
+  const [form, setForm] = useState(prazn);
+  const [otvoren, setOtvoren] = useState(false);
+  const [, setTick] = useState(0);
+  const formRef = useRef(null);
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 60000); return () => clearInterval(t); }, []);
+
+  useEffect(() => {
+    if (!predlozak) return;
+    setForm({ ...prazn, naziv: predlozak.naziv, link: predlozak.link });
+    setOtvoren(true);
+    setTimeout(() => { const el = formRef.current; if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 60);
+  }, [predlozak && predlozak.k]);
+
+  const mine = useMemo(() => plans.filter((p) => p.muId === muId), [plans, muId]);
+  const sada = Date.now();
+  const nadolaz = mine.filter((p) => p.ts == null || p.ts >= sada).sort((a, b) => (a.ts ?? Infinity) - (b.ts ?? Infinity));
+  const proslo = mine.filter((p) => p.ts != null && p.ts < sada).sort((a, b) => b.ts - a.ts);
+
+  const mutate = (fn) => setPlans(fn(get(K_PLANS, [])));
+  const objavi = () => {
+    if (!form.naziv.trim() || !form.opis.trim() || !muId) return;
+    mutate((list) => [{ id: newId(), muId, naziv: form.naziv.trim().slice(0, 90), opis: form.opis.trim().slice(0, 2000), link: safeUrl(form.link).slice(0, 300), prioritet: form.prioritet, ts: inputToUtc(form.kada), autor: me.ime, created: Date.now() }, ...list]);
+    setForm(prazn); setOtvoren(false);
+  };
+  const obrisi = (id) => { if (window.confirm("Obrisati ovaj plan?")) mutate((list) => list.filter((x) => x.id !== id)); };
+
+  if (!muId) return <p style={{ color: C.dim, fontFamily: C.mono, fontSize: 13 }}>Odaberi ili kreiraj jedinicu.</p>;
+
+  return (
+    <section>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
+        <div><div style={eyebrow}>Operacije</div><h2 style={{ fontFamily: C.display, fontSize: 24, letterSpacing: 1, margin: "2px 0 0", fontWeight: 700 }}>Planovi i naredbe</h2></div>
+        {mozeObjaviti && !otvoren && <button style={btn} onClick={() => setOtvoren(true)}>+ Novi plan</button>}
+      </div>
+
+      {mozeObjaviti && otvoren && (
+        <div ref={formRef} className="view" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 5, padding: 18, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <Polje label="Naziv bitke"><input style={inp} value={form.naziv} maxLength={90} onChange={(e) => setForm({ ...form, naziv: e.target.value })} placeholder="npr. Bitka za Zadar" /></Polje>
+            <Polje label="Poveznica (link na bitku)"><input style={inp} value={form.link} maxLength={300} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="https://app.warera.io/battle/..." /></Polje>
+            <Polje label="Vrijeme (UTC)"><input style={inp} type="datetime-local" value={form.kada} onChange={(e) => setForm({ ...form, kada: e.target.value })} /></Polje>
+            <Polje label="Prioritet"><select style={inp} value={form.prioritet} onChange={(e) => setForm({ ...form, prioritet: e.target.value })}>{PRIORITETI.map((x) => <option key={x} value={x}>{x}</option>)}</select></Polje>
+          </div>
+          <Polje label="Opis / naredbe" style={{ marginTop: 14 }}>
+            <textarea style={{ ...inp, minHeight: 104, fontFamily: C.sans, fontSize: 14 }} value={form.opis} maxLength={2000} onChange={(e) => setForm({ ...form, opis: e.target.value })} placeholder={"1. Svi u bitku u navedeno vrijeme\n2. Čuvajte oružje za zadnjih sat\n3. Javite štetu u porukama"} />
+          </Polje>
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}><button style={btn} onClick={objavi}>Objavi</button><button style={btnGhost} onClick={() => { setOtvoren(false); setForm(prazn); }}>Odustani</button></div>
+        </div>
+      )}
+
+      {mine.length === 0 && <p style={{ color: C.dim, fontFamily: C.mono, fontSize: 13 }}>Nema objavljenih planova za ovu jedinicu.</p>}
+
+      {nadolaz.length > 0 && (<>
+        <div style={{ ...eyebrow, color: C.ink2, margin: "4px 0 12px" }}>Nadolazeće i danas</div>
+        <div style={{ display: "grid", gap: 12 }}>{nadolaz.map((p, i) => <PlanKartica key={p.id} idx={i} plan={p} proslo={false} defaultOpen={i === 0} mozeObrisati={me.role === "admin" || p.autor === me.ime} onDelete={obrisi} />)}</div>
+      </>)}
+
+      {proslo.length > 0 && (<>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "30px 0 12px" }}><div style={{ ...eyebrow, color: C.dim }}>Prošlo</div><div style={{ flex: 1, height: 1, background: C.lineSoft }} /></div>
+        <div style={{ display: "grid", gap: 10 }}>{proslo.map((p, i) => <PlanKartica key={p.id} idx={i} plan={p} proslo={true} defaultOpen={false} mozeObrisati={me.role === "admin" || p.autor === me.ime} onDelete={obrisi} />)}</div>
+      </>)}
+    </section>
+  );
+}
+
+function PlanKartica({ plan, proslo, mozeObrisati, onDelete, idx, defaultOpen }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  const akcent = proslo ? C.line : prioBoja[plan.prioritet];
+  return (
+    <article className={proslo ? "card-past" : "card"} style={{ background: proslo ? "transparent" : C.panel, border: `1px solid ${proslo ? C.lineSoft : C.line}`, borderLeft: `3px solid ${akcent}`, borderRadius: 5, opacity: proslo ? 0.55 : 1, overflow: "hidden", animationDelay: Math.min(idx, 8) * 45 + "ms" }}>
+      <button className="head-btn" onClick={() => setOpen((o) => !o)} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: "13px 15px", color: C.ink }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ fontFamily: C.display, fontSize: 20, fontWeight: 600, letterSpacing: 0.6 }}>{plan.naziv}</span><Chevron open={open} color={proslo ? C.dim : C.crven} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7, flexWrap: "wrap" }}>
+          <Tag color={proslo ? C.dim : prioBoja[plan.prioritet]} dot>{plan.prioritet}</Tag>
+          {plan.ts != null && <span style={{ fontFamily: C.mono, fontSize: 11.5, color: proslo ? C.dim : C.ink2 }}>{utcStamp(plan.ts)} UTC</span>}
+          {proslo && <Tag color={C.dim}>Prošlo</Tag>}
+        </div>
+      </button>
+      <Collapsible open={open}>
+        <div style={{ padding: "0 15px 15px" }}>
+          <p style={{ fontFamily: C.sans, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap", margin: "2px 0 12px", color: proslo ? C.ink2 : C.ink }}>{plan.opis}</p>
+          {plan.link && (
+            <a className="linkbtn" href={plan.link} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: proslo ? C.lineSoft : C.panel2, border: `1px solid ${C.line}`, borderLeft: `3px solid ${proslo ? C.dim : C.crven}`, textDecoration: "none", fontFamily: C.display, fontSize: 15, fontWeight: 600, letterSpacing: 0.8, padding: "11px 14px", borderRadius: 3, color: C.ink }}>
+              <span>Otvori bitku · {plan.naziv}</span><span style={{ fontFamily: C.mono, fontSize: 10.5, color: proslo ? C.dim : C.crven, letterSpacing: 1 }}>→</span>
+            </a>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, alignItems: "center", marginTop: 12 }}>
+            <div style={{ fontFamily: C.mono, fontSize: 11, color: C.dim }}>Objavio {plan.autor} · {utcStamp(plan.created)}</div>
+            {mozeObrisati && <button style={{ ...btnDanger, fontSize: 11, padding: "4px 10px" }} onClick={() => onDelete(plan.id)}>Obriši</button>}
+          </div>
+        </div>
+      </Collapsible>
+    </article>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PORUKE
+// ---------------------------------------------------------------------------
+function Poruke({ me, muId }) {
+  const [all, setAll] = useStored(K_CHAT, []);
+  const [draft, setDraft] = useState("");
+  const dno = useRef(null); const prvi = useRef(true);
+  const msgs = useMemo(() => all.filter((m) => m.muId === muId), [all, muId]);
+  useEffect(() => { if (prvi.current && msgs.length) { dno.current && dno.current.scrollIntoView && dno.current.scrollIntoView(); prvi.current = false; } }, [msgs.length]);
+  const posalji = () => { const t = draft.trim(); if (!t || !muId) return; const next = [...get(K_CHAT, []), { id: newId(), muId, author: me.ime, text: t.slice(0, 600), ts: Date.now() }].slice(-CHAT_LIMIT); setAll(next); setDraft(""); setTimeout(() => dno.current && dno.current.scrollIntoView && dno.current.scrollIntoView(), 0); };
+  if (!muId) return <p style={{ color: C.dim, fontFamily: C.mono, fontSize: 13 }}>Odaberi jedinicu.</p>;
+  return (
+    <section>
+      <div style={{ marginBottom: 12 }}><div style={eyebrow}>Zapovjedni kanal</div><h2 style={{ fontFamily: C.display, fontSize: 24, letterSpacing: 1, margin: "2px 0 0", fontWeight: 700 }}>Poruke</h2></div>
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 5, height: "54vh", overflowY: "auto", padding: 14 }}>
+        {msgs.length === 0 && <div style={{ color: C.dim, fontFamily: C.mono, fontSize: 13 }}>Kanal je tih. Pošalji prvu poruku.</div>}
+        {msgs.map((m) => { const ja = m.author === me.ime; return (
+          <div key={m.id} style={{ marginBottom: 12 }}>
+            <div style={{ fontFamily: C.mono, fontSize: 11, color: C.dim }}><span style={{ color: ja ? C.crven : C.ink, fontWeight: 600 }}>{m.author}</span>{"   "}{utcStamp(m.ts)}</div>
+            <div style={{ fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", marginTop: 2 }}>{m.text}</div>
+          </div>); })}
+        <div ref={dno} />
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <input style={inp} value={draft} maxLength={600} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && posalji()} placeholder="Poruka zapovjednicima" />
+        <button style={btn} onClick={posalji}>Pošalji</button>
+      </div>
+      <p style={{ ...eyebrow, marginTop: 8 }}>Vidljivo samo zapovjednicima ove jedinice.</p>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ADMINISTRACIJA
+// ---------------------------------------------------------------------------
+function Admin({ me, mus, setMus, users, setUsers, cfg, setCfg, onOpenMu }) {
+  const [openUnit, setOpenUnit] = useState(mus[0] ? mus[0].id : null);
+  const obrisiMu = (id) => { if (!window.confirm("Obrisati jedinicu i sve njene članove, planove i poruke?")) return; setMus(mus.filter((m) => m.id !== id)); setUsers(users.filter((u) => u.muId !== id)); set(K_PLANS, get(K_PLANS, []).filter((p) => p.muId !== id)); set(K_CHAT, get(K_CHAT, []).filter((c) => c.muId !== id)); };
+  const promijeni = (id, patch) => setUsers(users.map((u) => u.id === id ? { ...u, ...patch } : u));
+  const obrisiClana = (id) => { if (window.confirm("Obrisati člana?")) setUsers(users.filter((u) => u.id !== id)); };
+  const ponisti = (id) => { if (window.confirm("Poništiti lozinku? Član će je morati ponovno postaviti.")) promijeni(id, { password: null }); };
+  const dodajClana = (muId, ime, role) => { const n = ime.trim(); if (!n) return false; if (users.some((u) => u.ime.toLowerCase() === n.toLowerCase())) { window.alert("Član s tim imenom već postoji."); return false; } setUsers([...users, { id: newId(), ime: n, role, muId, password: null }]); return true; };
+  const dodajViše = (muId, imena) => {
+    const postoje = new Set(users.map((u) => u.ime.toLowerCase())); const novi = [];
+    imena.forEach((n) => { const nn = (n || "").trim(); if (nn && !postoje.has(nn.toLowerCase())) { postoje.add(nn.toLowerCase()); novi.push({ id: newId(), ime: nn, role: "vojnik", muId, password: null }); } });
+    if (novi.length) setUsers([...users, ...novi]);
+    return novi.length;
+  };
+  const postaviWarera = (muId, val, naziv) => setMus(mus.map((m) => m.id === muId ? { ...m, wareraMuId: val, wareraNaziv: naziv || m.wareraNaziv } : m));
+
+  return (
+    <section>
+      <Postavke cfg={cfg} setCfg={setCfg} />
+      <div style={{ ...eyebrow, marginTop: 30 }}>Upravljanje</div>
+      <h2 style={{ fontFamily: C.display, fontSize: 24, letterSpacing: 1, margin: "2px 0 6px", fontWeight: 700 }}>Jedinice i članovi</h2>
+      <p style={{ color: C.ink2, fontSize: 13, margin: "0 0 18px", lineHeight: 1.5 }}>Klikni jedinicu da otvoriš članove. Nove dodaješ preko „＋“ na vrhu. Unutar jedinice možeš odabrati pravi hrvatski MU iz igre i povući cijeli roster u whitelist.</p>
+      {mus.length === 0 && <p style={{ color: C.dim, fontFamily: C.mono, fontSize: 13 }}>Još nema jedinica. Dodaj ih preko „＋“ na vrhu.</p>}
+      <div style={{ display: "grid", gap: 12 }}>
+        {mus.map((m) => (
+          <UnitPanel key={m.id} m={m} open={openUnit === m.id} onToggle={() => setOpenUnit((o) => o === m.id ? null : m.id)}
+            clanovi={users.filter((u) => u.muId === m.id)} proxyUrl={cfg.proxyUrl}
+            onOpenMu={onOpenMu} onDeleteMu={obrisiMu} onChange={promijeni} onDeleteClan={obrisiClana} onReset={ponisti} onAdd={dodajClana} onAddMany={dodajViše} onSetWarera={postaviWarera} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Postavke({ cfg, setCfg }) {
+  const [url, setUrl] = useState(cfg.proxyUrl || "");
+  const [status, setStatus] = useState(null);
+  const test = async () => {
+    setStatus({ t: "load" });
+    try { const d = await apiGet(url.trim(), "/health"); setStatus({ t: "ok", msg: `Veza radi (auth: ${d.auth || "none"}).` }); setCfg({ ...cfg, proxyUrl: url.trim() }); }
+    catch (e) { setStatus({ t: "err", msg: e.message }); }
+  };
+  return (
+    <div>
+      <div style={eyebrow}>Postavke</div>
+      <h2 style={{ fontFamily: C.display, fontSize: 22, letterSpacing: 1, margin: "2px 0 10px", fontWeight: 700 }}>Živi podaci (proxy)</h2>
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 5, padding: 16 }}>
+        <p style={{ color: C.ink2, fontSize: 13, margin: "0 0 12px", lineHeight: 1.5 }}>Adresa War Era proxyja (npr. http://localhost:8787). Kad radi, kartica „Bitke uživo“ vuče sve trenutne bitke, a ovdje možeš birati hrvatske MU-ove i povlačiti rostere.</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <Polje label="Proxy URL" style={{ flex: "1 1 260px" }}><input style={inp} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://localhost:8787" onKeyDown={(e) => e.key === "Enter" && test()} /></Polje>
+          <button style={btn} onClick={test}>Test veze</button>
+          <button style={btnGhost} onClick={() => setCfg({ ...cfg, proxyUrl: url.trim() })}>Spremi</button>
+        </div>
+        {status && (
+          <div style={{ marginTop: 10, fontFamily: C.mono, fontSize: 12 }}>
+            {status.t === "load" && <span style={{ color: C.dim, display: "inline-flex", alignItems: "center", gap: 8 }}><span className="spin" /> Provjeravam…</span>}
+            {status.t === "ok" && <span style={{ color: C.zelena }}>✓ {status.msg}</span>}
+            {status.t === "err" && <span style={{ color: C.crven }}>✕ {status.msg}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UnitPanel({ m, open, onToggle, clanovi, proxyUrl, onOpenMu, onDeleteMu, onChange, onDeleteClan, onReset, onAdd, onAddMany, onSetWarera }) {
+  const [ime, setIme] = useState(""); const [role, setRole] = useState("vojnik");
+  const [roster, setRoster] = useState(null);
+  const [hrMu, setHrMu] = useState(null); // {loading|err|list}
+  const add = () => { if (onAdd(m.id, ime, role)) { setIme(""); setRole("vojnik"); } };
+
+  const ucitajHrMu = async () => {
+    if (hrMu && hrMu.list) { setHrMu(null); return; }
+    setHrMu({ loading: true });
+    try { const d = await apiGet(proxyUrl, "/api/mus?country=Croatia"); setHrMu({ list: d.mus || [], scanned: d.scannedUsers }); }
+    catch (e) { setHrMu({ err: e.message }); }
+  };
+
+  const povuciRoster = async (idOverride) => {
+    const id = (idOverride || m.wareraMuId || "").trim();
+    if (!id) { setRoster({ t: "err", msg: "Prvo odaberi hrvatski MU iz popisa." }); return; }
+    setRoster({ t: "load" });
+    try {
+      const d = await apiGet(proxyUrl, "/api/mu/" + encodeURIComponent(id) + "/roster");
+      const imena = (d.members || []).map((x) => x.username).filter(Boolean);
+      if (!imena.length) { setRoster({ t: "err", msg: "Roster je prazan ili bez imena." }); return; }
+      const dodano = onAddMany(m.id, imena);
+      setRoster({ t: "ok", msg: `Povučeno ${imena.length}, novih dodano ${dodano}, već postojalo ${imena.length - dodano}.` });
+    } catch (e) { setRoster({ t: "err", msg: e.message }); }
+  };
+
+  const poveziMu = (mu) => { onSetWarera(m.id, mu.id, mu.name); setHrMu(null); povuciRoster(mu.id); };
+
+  return (
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 5, overflow: "hidden" }}>
+      <div className="head-btn" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", cursor: "pointer", gap: 8, flexWrap: "wrap" }} onClick={onToggle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <Chevron open={open} /><span style={{ fontFamily: C.display, fontSize: 19, fontWeight: 600, letterSpacing: 0.5 }}>{m.naziv}</span><Tag color={C.ink2}>{m.tag}</Tag>
+          <span style={{ fontFamily: C.mono, fontSize: 11, color: C.dim }}>{clanovi.length} članova</span>
+          {m.wareraMuId && <Tag color={C.zelena} dot>{m.wareraNaziv || "povezan"}</Tag>}
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button style={{ ...btnGhost, fontSize: 11, padding: "5px 10px" }} onClick={(e) => { e.stopPropagation(); onOpenMu(m.id); }}>Otvori ploču</button>
+          <button style={{ ...btnDanger, fontSize: 11, padding: "5px 10px" }} onClick={(e) => { e.stopPropagation(); onDeleteMu(m.id); }}>Obriši</button>
+        </div>
+      </div>
+
+      <Collapsible open={open}>
+        <div style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+          <div style={{ padding: 14, borderBottom: `1px solid ${C.lineSoft}`, background: "rgba(255,255,255,.015)" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={eyebrow}>Povezivanje s igrom</span>
+              <button style={{ ...btnGhost, fontSize: 11, padding: "6px 10px" }} onClick={ucitajHrMu}>{hrMu && hrMu.list ? "Sakrij popis" : "Hrvatski MU-ovi"}</button>
+              {m.wareraMuId && <>
+                <button style={{ ...btn, fontSize: 11, padding: "6px 10px" }} onClick={() => povuciRoster()}>Povuci roster</button>
+                <a href={`https://app.warera.io/mu/${m.wareraMuId}`} target="_blank" rel="noopener noreferrer" style={{ ...btnGhost, fontSize: 11, padding: "6px 10px", textDecoration: "none" }}>Otvori u igri →</a>
+                <button style={{ ...btnGhost, fontSize: 11, padding: "6px 10px", color: C.dim }} onClick={() => onSetWarera(m.id, "", "")}>Odspoji</button>
+              </>}
+            </div>
+
+            {hrMu && hrMu.loading && <div style={{ marginTop: 10, color: C.dim, fontFamily: C.mono, fontSize: 12, display: "flex", gap: 8, alignItems: "center" }}><span className="spin" /> Tražim hrvatske MU-ove…</div>}
+            {hrMu && hrMu.err && <div style={{ marginTop: 10, color: C.crven, fontFamily: C.mono, fontSize: 12 }}>✕ {hrMu.err}</div>}
+            {hrMu && hrMu.list && (
+              <div className="view" style={{ marginTop: 10, display: "grid", gap: 6, maxHeight: 260, overflowY: "auto" }}>
+                {hrMu.list.length === 0 && <div style={{ color: C.dim, fontFamily: C.mono, fontSize: 12 }}>Nije pronađen nijedan MU.</div>}
+                {hrMu.list.map((x) => (
+                  <div key={x.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: C.panel2, border: `1px solid ${C.lineSoft}`, borderRadius: 3, padding: "8px 10px" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <span style={{ fontSize: 18, marginRight: 7 }}>🇭🇷</span>
+                      <span style={{ fontFamily: C.display, fontSize: 15, fontWeight: 600 }}>{x.name || "(bez imena)"}</span>
+                      {x.membersCount != null && <span style={{ fontFamily: C.mono, fontSize: 11, color: C.dim, marginLeft: 8 }}>{x.membersCount} članova</span>}
+                    </div>
+                    <button style={{ ...btn, fontSize: 11, padding: "6px 10px", whiteSpace: "nowrap" }} onClick={() => poveziMu(x)}>Poveži</button>
+                  </div>
+                ))}
+                {hrMu.scanned != null && <div style={eyebrow}>skenirano {hrMu.scanned} igrača</div>}
+              </div>
+            )}
+
+            {roster && <div style={{ marginTop: 10, fontFamily: C.mono, fontSize: 12 }}>
+              {roster.t === "load" && <span style={{ color: C.dim, display: "inline-flex", alignItems: "center", gap: 8 }}><span className="spin" /> Dohvaćam roster…</span>}
+              {roster.t === "ok" && <span style={{ color: C.zelena }}>✓ {roster.msg}</span>}
+              {roster.t === "err" && <span style={{ color: C.crven }}>✕ {roster.msg}</span>}
+            </div>}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 0.9fr auto", gap: 10, padding: "10px 14px", ...eyebrow, borderBottom: `1px solid ${C.lineSoft}` }}><div>Ime</div><div>Uloga</div><div>Status</div><div></div></div>
+          {clanovi.length === 0 && <div style={{ padding: 14, color: C.dim, fontFamily: C.mono, fontSize: 12 }}>Nema članova. Dodaj prvog dolje ili povuci roster.</div>}
+          {clanovi.map((u) => {
+            const aktivan = u.password != null;
+            return (
+              <div key={u.id} className="hrow" style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 0.9fr auto", gap: 10, padding: "10px 14px", alignItems: "center", borderBottom: `1px solid ${C.lineSoft}` }}>
+                <div style={{ fontWeight: 600 }}>{u.ime}</div>
+                <select style={{ ...inp, padding: "6px 8px" }} value={u.role} onChange={(e) => onChange(u.id, { role: e.target.value })}>{ROLES.filter((r) => r !== "admin").map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</select>
+                <div>{aktivan ? <Tag color={C.zelena} dot>Aktivan</Tag> : <Tag color={C.zlato} dot>Čeka</Tag>}</div>
+                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                  {aktivan && <button style={{ ...btnGhost, fontSize: 10.5, padding: "5px 8px" }} onClick={() => onReset(u.id)}>Reset</button>}
+                  <button style={{ ...btnDanger, fontSize: 10.5, padding: "5px 8px" }} onClick={() => onDeleteClan(u.id)}>Obriši</button>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ display: "flex", gap: 10, padding: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <Polje label="Ime vojnika / zapovjednika" style={{ flex: "1 1 200px" }}><input style={inp} value={ime} onChange={(e) => setIme(e.target.value)} placeholder="npr. Tomislav" onKeyDown={(e) => e.key === "Enter" && add()} /></Polje>
+            <Polje label="Uloga" style={{ width: 160 }}><select style={inp} value={role} onChange={(e) => setRole(e.target.value)}>{ROLES.filter((r) => r !== "admin").map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</select></Polje>
+            <button style={btn} onClick={add}>Dodaj na listu</button>
+          </div>
+        </div>
+      </Collapsible>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
