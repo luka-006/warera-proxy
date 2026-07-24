@@ -1,5 +1,11 @@
 // Server-side War Era proxy. API kljuc nikad ne izlazi na klijenta.
 // War Era koristi tRPC preko HTTP GET: /trpc/<namespace>.<method>?input=<JSON>
+//
+// Stvarni endpointi (community docs):
+//   battle.getBattles?input={"isActive":true}  -> { items: [...] }
+//   country.getAllCountries                     -> [ { _id, name, code } ]
+//   region.getRegionsObject                     -> { <id>: { name, countryCode } }
+// U bitkama su country/region samo ID-evi pa ih razrjesavamo u imena i zastave.
 
 const BASE = process.env.WARERA_API_BASE ?? "https://api2.warera.io/trpc";
 const APP_BASE = process.env.WARERA_APP_BASE ?? "https://app.warera.io";
@@ -8,8 +14,9 @@ const API_KEY = process.env.WARERA_API_KEY;
 export interface BattleSide {
   countryId?: string;
   name?: string;
-  countryCode?: string; // ISO2 za zastavu
+  countryCode?: string; // ISO2 za zastavu (npr. "hr")
   damage?: number;
+  points?: number;
 }
 
 export interface Battle {
@@ -19,50 +26,11 @@ export interface Battle {
   defender: BattleSide;
   regionName?: string;
   round?: number;
+  roundsToWin?: number;
   totalDamage?: number;
-  status?: string;
+  type?: string;
   link: string;
   updatedAt: string;
-}
-
-interface CacheEntry {
-  at: number;
-  data: unknown;
-}
-
-const cache = new Map<string, CacheEntry>();
-const TTL_MS = 45_000;
-
-async function trpcGet<T>(path: string, input?: unknown): Promise<T> {
-  const key = `${path}:${input ? JSON.stringify(input) : ""}`;
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.at < TTL_MS) {
-    return cached.data as T;
-  }
-
-  const url = new URL(`${BASE}/${path}`);
-  if (input !== undefined) {
-    url.searchParams.set("input", JSON.stringify(input));
-  }
-
-  const headers: Record<string, string> = { accept: "application/json" };
-  if (API_KEY) headers["authorization"] = `Bearer ${API_KEY}`;
-
-  const res = await fetch(url.toString(), {
-    headers,
-    // ne cache-amo na Next fetch sloju, imamo vlastiti cache
-    cache: "no-store"
-  });
-
-  if (!res.ok) {
-    throw new WareraError(`War Era API ${res.status}`, res.status);
-  }
-
-  const json = await res.json();
-  // tRPC omotava rezultat u { result: { data: ... } }
-  const data = json?.result?.data ?? json;
-  cache.set(key, { at: Date.now(), data });
-  return data as T;
 }
 
 export class WareraError extends Error {
@@ -73,57 +41,131 @@ export class WareraError extends Error {
   }
 }
 
+interface CacheEntry {
+  at: number;
+  data: unknown;
+}
+const cache = new Map<string, CacheEntry>();
+
+async function trpcGet<T>(path: string, input: unknown, ttlMs: number): Promise<T> {
+  const key = `${path}:${input ? JSON.stringify(input) : ""}`;
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.at < ttlMs) {
+    return cached.data as T;
+  }
+
+  const url = new URL(`${BASE}/${path}`);
+  if (input !== undefined) url.searchParams.set("input", JSON.stringify(input));
+
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (API_KEY) headers["authorization"] = `Bearer ${API_KEY}`;
+
+  const res = await fetch(url.toString(), { headers, cache: "no-store" });
+  if (!res.ok) throw new WareraError(`War Era API ${res.status}`, res.status);
+
+  const json = await res.json();
+  const data = json?.result?.data ?? json;
+  cache.set(key, { at: Date.now(), data });
+  return data as T;
+}
+
 export function battleLink(battleId: string): string {
-  return `${APP_BASE}/battles/${battleId}`;
+  return `${APP_BASE}/battle/${battleId}`;
 }
 
 export function isConfigured(): boolean {
   return Boolean(API_KEY);
 }
 
-// Dohvat aktivnih bitaka. War Era shema nije sluzbeno dokumentirana pa
-// mapiramo defenzivno preko vise mogucih naziva polja.
-export async function getActiveBattles(): Promise<Battle[]> {
-  // Pokusavamo nekoliko poznatih ruta; prva koja uspije se koristi.
-  const raw = await trpcGet<any>("battle.getActiveBattles").catch(async () => {
-    return trpcGet<any>("battle.getAll").catch(() => null);
-  });
-
-  const list: any[] = Array.isArray(raw)
-    ? raw
-    : Array.isArray(raw?.battles)
-      ? raw.battles
-      : Array.isArray(raw?.items)
-        ? raw.items
-        : [];
-
-  return list.map(normalizeBattle);
+interface CountryInfo {
+  name: string;
+  code?: string;
 }
 
-function pick<T>(...vals: T[]): T | undefined {
-  for (const v of vals) if (v !== undefined && v !== null) return v;
+async function getCountryMap(): Promise<Map<string, CountryInfo>> {
+  const list = await trpcGet<any[]>("country.getAllCountries", undefined, 5 * 60_000);
+  const map = new Map<string, CountryInfo>();
+  for (const c of list ?? []) {
+    if (c?._id) map.set(c._id, { name: c.name ?? "?", code: c.code });
+  }
+  return map;
+}
+
+async function getRegionMap(): Promise<Map<string, string>> {
+  const obj = await trpcGet<Record<string, any>>(
+    "region.getRegionsObject",
+    undefined,
+    5 * 60_000
+  );
+  const map = new Map<string, string>();
+  for (const [id, r] of Object.entries(obj ?? {})) {
+    if (r?.name) map.set(id, r.name);
+  }
+  return map;
+}
+
+function num(...vals: any[]): number | undefined {
+  for (const v of vals) if (typeof v === "number") return v;
   return undefined;
 }
 
-function normalizeBattle(b: any): Battle {
-  const id: string = String(pick(b?._id, b?.id, b?.battleId) ?? "");
-  const attacker: BattleSide = {
-    countryId: pick(b?.attacker?.countryId, b?.attackerCountryId),
-    name: pick(b?.attacker?.name, b?.attackerName, b?.attacker?.country?.name),
-    countryCode: pick(b?.attacker?.code, b?.attacker?.country?.code),
-    damage: pick(b?.attacker?.damage, b?.attackerDamage)
+export async function getActiveBattles(): Promise<Battle[]> {
+  const [countries, regions, raw] = await Promise.all([
+    getCountryMap().catch(() => new Map<string, CountryInfo>()),
+    getRegionMap().catch(() => new Map<string, string>()),
+    trpcGet<any>("battle.getBattles", { isActive: true, limit: 60 }, 45_000)
+  ]);
+
+  const items: any[] = Array.isArray(raw?.items)
+    ? raw.items
+    : Array.isArray(raw)
+      ? raw
+      : [];
+
+  const battles = items.map((b) => normalizeBattle(b, countries, regions));
+
+  // Sortiraj po ukupnoj steti u trenutnoj rundi (najzesce bitke gore)
+  battles.sort((a, b) => (b.totalDamage ?? 0) - (a.totalDamage ?? 0));
+  return battles;
+}
+
+function side(
+  raw: any,
+  round: any,
+  countries: Map<string, CountryInfo>
+): BattleSide {
+  const info = raw?.country ? countries.get(raw.country) : undefined;
+  return {
+    countryId: raw?.country,
+    name: info?.name,
+    countryCode: info?.code,
+    damage: num(round?.damages, raw?.damages),
+    points: num(round?.points)
   };
-  const defender: BattleSide = {
-    countryId: pick(b?.defender?.countryId, b?.defenderCountryId),
-    name: pick(b?.defender?.name, b?.defenderName, b?.defender?.country?.name),
-    countryCode: pick(b?.defender?.code, b?.defender?.country?.code),
-    damage: pick(b?.defender?.damage, b?.defenderDamage)
-  };
-  const regionName = pick(b?.region?.name, b?.regionName, b?.region);
+}
+
+function normalizeBattle(
+  b: any,
+  countries: Map<string, CountryInfo>,
+  regions: Map<string, string>
+): Battle {
+  const id = String(b?._id ?? "");
+  const cr = b?.currentRound ?? {};
+  const attacker = side(b?.attacker, cr?.attacker, countries);
+  const defender = side(b?.defender, cr?.defender, countries);
+
+  // Bitka se vodi za obrambenu regiju
+  const regionName =
+    (b?.defender?.region && regions.get(b.defender.region)) ||
+    (b?.attacker?.region && regions.get(b.attacker.region)) ||
+    undefined;
+
   const label =
     [attacker.name, defender.name].filter(Boolean).join(" vs ") ||
     regionName ||
-    `Bitka ${id}`;
+    `Bitka ${id.slice(-5)}`;
+
+  const totalDamage = (attacker.damage ?? 0) + (defender.damage ?? 0);
 
   return {
     id,
@@ -131,9 +173,10 @@ function normalizeBattle(b: any): Battle {
     attacker,
     defender,
     regionName,
-    round: pick(b?.round, b?.currentRound),
-    totalDamage: pick(b?.totalDamage, b?.damage),
-    status: pick(b?.status, b?.state),
+    round: num(cr?.number),
+    roundsToWin: num(b?.roundsToWin),
+    totalDamage,
+    type: b?.type,
     link: battleLink(id),
     updatedAt: new Date().toISOString()
   };

@@ -7,6 +7,7 @@ interface BattleSide {
   name?: string;
   countryCode?: string;
   damage?: number;
+  points?: number;
 }
 interface Battle {
   id: string;
@@ -15,8 +16,9 @@ interface Battle {
   defender: BattleSide;
   regionName?: string;
   round?: number;
+  roundsToWin?: number;
   totalDamage?: number;
-  status?: string;
+  type?: string;
   link: string;
 }
 interface Note {
@@ -254,6 +256,13 @@ function BattleCard({
           {battle.round !== undefined && (
             <span>
               <span className="k">runda</span> {battle.round}
+              {battle.roundsToWin ? `/${battle.roundsToWin}` : ""}
+            </span>
+          )}
+          {(battle.attacker.points !== undefined || battle.defender.points !== undefined) && (
+            <span>
+              <span className="k">bodovi</span> {battle.attacker.points ?? 0}:
+              {battle.defender.points ?? 0}
             </span>
           )}
           <span>
