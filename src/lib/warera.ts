@@ -5,6 +5,13 @@ const BASE = process.env.WARERA_API_BASE ?? "https://api2.warera.io/trpc";
 const APP_BASE = process.env.WARERA_APP_BASE ?? "https://app.warera.io";
 const API_KEY = process.env.WARERA_API_KEY;
 
+export interface MuContract {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  link: string;
+}
+
 export interface BattleSide {
   countryId?: string;
   name?: string;
@@ -13,6 +20,11 @@ export interface BattleSide {
   points?: number;
   wonRounds?: number;
   link?: string; // app.warera.io/country/<id>
+  // bounty (ako postoji nagrada za stetu)
+  bountyPer1k?: number;
+  bountyPool?: number;
+  // jedinice s aktivnim ugovorom na ovoj strani
+  contracts?: MuContract[];
 }
 
 export interface Battle {
@@ -94,6 +106,27 @@ export function isConfigured(): boolean {
 
 export const CROATIA_COUNTRY_ID =
   process.env.WARERA_CROATIA_COUNTRY_ID ?? "6813b6d446e731854c7ac7bc";
+// Kirgistan = proxy drzava za Hrvatsku
+export const KYRGYZSTAN_COUNTRY_ID =
+  process.env.WARERA_KYRGYZSTAN_COUNTRY_ID ?? "6813b6d546e731854c7ac8c4";
+
+/** Paralelno mapiranje s ogranicenjem istovremenih zahtjeva */
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
 
 interface CountryInfo {
   name: string;
@@ -142,7 +175,43 @@ export async function getActiveBattles(): Promise<Battle[]> {
 
   const battles = items.map((b) => normalizeBattle(b, countries, regions));
   battles.sort((a, b) => (b.totalDamage ?? 0) - (a.totalDamage ?? 0));
+
+  await attachContracts(items, battles).catch(() => {});
   return battles;
+}
+
+/** muOrders na bitci su direktno MU id-evi -> logo jedinice pod ugovorom */
+async function attachContracts(rawItems: any[], battles: Battle[]): Promise<void> {
+  const ids = new Set<string>();
+  for (const b of rawItems) {
+    for (const id of b?.attacker?.muOrders ?? []) ids.add(String(id));
+    for (const id of b?.defender?.muOrders ?? []) ids.add(String(id));
+  }
+  if (ids.size === 0) return;
+
+  const list = [...ids].slice(0, 80);
+  const resolved = await mapLimit(list, 8, async (id) => {
+    const mu = await getMuById(id);
+    return mu
+      ? ({ id, name: mu.name ?? "Jedinica", avatarUrl: mu.avatarUrl, link: muLink(id) } as MuContract)
+      : null;
+  });
+  const muMap = new Map<string, MuContract>();
+  for (const c of resolved) if (c) muMap.set(c.id, c);
+
+  const byId = new Map(battles.map((b) => [b.id, b]));
+  for (const raw of rawItems) {
+    const battle = byId.get(String(raw?._id ?? ""));
+    if (!battle) continue;
+    const att = (raw?.attacker?.muOrders ?? [])
+      .map((id: string) => muMap.get(String(id)))
+      .filter(Boolean) as MuContract[];
+    const def = (raw?.defender?.muOrders ?? [])
+      .map((id: string) => muMap.get(String(id)))
+      .filter(Boolean) as MuContract[];
+    if (att.length) battle.attacker.contracts = att;
+    if (def.length) battle.defender.contracts = def;
+  }
 }
 
 function side(
@@ -152,6 +221,8 @@ function side(
 ): BattleSide {
   const countryId = raw?.country as string | undefined;
   const info = countryId ? countries.get(countryId) : undefined;
+  const per1k = num(raw?.moneyPer1kDamages);
+  const pool = num(raw?.moneyPool);
   return {
     countryId,
     name: info?.name,
@@ -159,7 +230,9 @@ function side(
     damage: num(round?.damages, raw?.damages),
     points: num(round?.points),
     wonRounds: num(raw?.wonRoundsCount),
-    link: countryId ? countryLink(countryId) : undefined
+    link: countryId ? countryLink(countryId) : undefined,
+    bountyPer1k: per1k && per1k > 0 ? per1k : undefined,
+    bountyPool: pool && pool > 0 ? pool : undefined
   };
 }
 
@@ -220,6 +293,8 @@ export interface MilitaryUnit {
   avatarUrl?: string;
   link: string;
   countryId?: string;
+  countryCode?: string;
+  countryName?: string;
   regionId?: string;
   memberCount: number;
   commanders: MuMember[];
@@ -239,7 +314,7 @@ export async function getUserLite(userId: string): Promise<any | null> {
 
 export async function getMuById(muId: string): Promise<any | null> {
   try {
-    return await trpcGet<any>("mu.getById", { muId }, 60_000);
+    return await trpcGet<any>("mu.getById", { muId }, 10 * 60_000);
   } catch {
     return null;
   }
@@ -265,6 +340,8 @@ function toMember(
 export async function getMilitaryUnit(muId: string): Promise<MilitaryUnit | null> {
   const raw = await getMuById(muId);
   if (!raw) return null;
+  const countries = await getCountryMap().catch(() => new Map<string, CountryInfo>());
+  const cinfo = raw.country ? countries.get(raw.country) : undefined;
 
   const commanderIds: string[] = raw?.roles?.commanders ?? [];
   const managerIds: string[] = raw?.roles?.managers ?? [];
@@ -295,6 +372,8 @@ export async function getMilitaryUnit(muId: string): Promise<MilitaryUnit | null
     avatarUrl: raw.avatarUrl,
     link: muLink(raw._id),
     countryId: raw.country,
+    countryCode: cinfo?.code,
+    countryName: cinfo?.name,
     regionId: raw.region,
     memberCount: memberIds.length,
     commanders,
@@ -308,6 +387,30 @@ export async function getMilitaryUnit(muId: string): Promise<MilitaryUnit | null
 export async function getMilitaryUnits(muIds: string[]): Promise<MilitaryUnit[]> {
   const units = await Promise.all(muIds.map((id) => getMilitaryUnit(id)));
   return units.filter((u): u is MilitaryUnit => Boolean(u));
+}
+
+/**
+ * Otkrij jedinice iz Hrvatske i Kirgistana (proxy drzava).
+ * Skenira top ljestvicu tjedne stete i filtrira po drzavi.
+ */
+export async function discoverCroatianMus(): Promise<{ id: string; name: string }[]> {
+  const ranking = await trpcGet<any>(
+    "ranking.getRanking",
+    { rankingType: "muWeeklyDamages", limit: 300 },
+    5 * 60_000
+  );
+  const items: any[] = Array.isArray(ranking?.items) ? ranking.items : [];
+  const muIds = [...new Set(items.map((i) => String(i?.mu ?? i?._id ?? "")).filter(Boolean))];
+
+  const wanted = new Set([CROATIA_COUNTRY_ID, KYRGYZSTAN_COUNTRY_ID]);
+  const found: { id: string; name: string }[] = [];
+  await mapLimit(muIds, 12, async (id) => {
+    const mu = await getMuById(id);
+    if (mu && wanted.has(String(mu.country))) {
+      found.push({ id, name: mu.name ?? "Jedinica" });
+    }
+  });
+  return found;
 }
 
 /** Izvuci MU id iz URL-a ili cistog id-a */

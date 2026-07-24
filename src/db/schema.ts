@@ -116,6 +116,11 @@ export const plans = sqliteTable(
     type: text("type").notNull().default("zapovijed"),
     // HITNO | VISOKO | NORMALNO | NISKO
     priority: text("priority").notNull().default("NORMALNO"),
+    // JSON niz faza: [{ title, when, body }]
+    phases: text("phases"),
+    // povezana aktivna bitka (direktan link)
+    battleId: text("battle_id"),
+    battleLabel: text("battle_label"),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -128,6 +133,27 @@ export const plans = sqliteTable(
   },
   (t) => ({
     createdIdx: index("plans_created_idx").on(t.createdAt)
+  })
+);
+
+// Reakcije na planove (srce / like / salute)
+export const planReactions = sqliteTable(
+  "plan_reactions",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    emoji: text("emoji").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`)
+  },
+  (t) => ({
+    planIdx: index("plan_reactions_plan_idx").on(t.planId)
   })
 );
 

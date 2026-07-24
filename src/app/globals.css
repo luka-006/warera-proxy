@@ -45,6 +45,21 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Sprjecava izlijevanje sadrzaja izvan stranice */
+img,
+video {
+  max-width: 100%;
+}
+p,
+h1,
+h2,
+h3,
+.plan-body,
+.note .body {
+  overflow-wrap: anywhere;
 }
 
 a {
@@ -162,6 +177,48 @@ h3 {
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
+  min-width: 0;
+}
+
+/* Vojna "briefing" animacija — svaka stranica se polako otkriva */
+@keyframes pageIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+    clip-path: inset(0 0 30% 0);
+  }
+  60% {
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.page-anim {
+  animation: pageIn 0.4s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reveal {
+  animation: reveal 0.22s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-anim,
+  .reveal,
+  .dd-menu {
+    animation: none !important;
+  }
 }
 
 /* Section headers */
@@ -913,6 +970,412 @@ table.grid tr:hover td {
   border-color: var(--olive);
 }
 
+/* --- Padajuci izbornici (dropdown) --- */
+.dd {
+  position: relative;
+  display: inline-block;
+}
+.dd-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 130px;
+  width: 100%;
+  background: #0f120e;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: left;
+}
+.dd-btn:hover,
+.dd-btn.open {
+  border-color: var(--olive-bright);
+  background: #121712;
+}
+.dd-value {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dd-caret {
+  color: var(--ink-faint);
+  font-size: 10px;
+  transition: transform 0.18s ease;
+  flex: none;
+}
+.dd-caret.up {
+  transform: rotate(180deg);
+}
+@keyframes ddIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+.dd-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #12160f;
+  border: 1px solid var(--olive);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+  animation: ddIn 0.16s ease-out;
+  transform-origin: top;
+}
+.dd-menu.right {
+  left: auto;
+  right: 0;
+}
+.dd-title {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 8px 12px 5px;
+  border-bottom: 1px solid var(--line);
+}
+.dd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  padding: 9px 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+.dd-item:hover {
+  background: rgba(111, 122, 68, 0.14);
+  border-left-color: var(--olive-bright);
+}
+.dd-item.sel {
+  background: rgba(111, 122, 68, 0.1);
+  border-left-color: var(--olive-bright);
+}
+.dd-hint {
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+.dd-danger {
+  color: var(--danger-bright);
+  border-top: 1px solid var(--line);
+}
+.dd-danger:hover {
+  background: rgba(181, 72, 47, 0.14);
+  border-left-color: var(--danger-bright);
+}
+
+/* Pin meni (zvjezdica na nadzornoj ploci) */
+.pin-dd .dd-menu,
+.pin-menu {
+  min-width: 180px;
+}
+.pin-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border: 1px solid;
+  padding: 1px 6px;
+  flex: none;
+}
+
+/* Bounty i ugovori */
+.meta-chip.bounty {
+  color: var(--amber);
+  border-color: rgba(200, 146, 47, 0.55);
+}
+.contracts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 14px 10px;
+}
+.contracts-lbl {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.contract-mu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: #121612;
+  padding: 3px 8px 3px 4px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-decoration: none;
+  transition: border-color 0.12s, color 0.12s;
+}
+.contract-mu:hover {
+  border-color: var(--amber);
+  color: var(--ink);
+  text-decoration: none;
+}
+.contract-mu img,
+.contract-fallback {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border: 1px solid var(--line-strong);
+  flex: none;
+}
+.contract-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: var(--ink-faint);
+  background: #0f120e;
+}
+.contract-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Plan — povezana bitka, faze, reakcije */
+.form-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.form-row .field {
+  flex: 1;
+  min-width: 150px;
+}
+.plan-battle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--olive);
+  color: var(--olive-bright);
+  padding: 5px 11px;
+  margin-bottom: 12px;
+}
+.plan-battle:hover {
+  background: rgba(111, 122, 68, 0.15);
+  text-decoration: none;
+}
+.plan-battle .arrow {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.phase-builder {
+  border: 1px dashed var(--line-strong);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.phase-builder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.phase-builder-head .lbl {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.phase-edit {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.phase-edit-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.phase-edit-top input {
+  flex: 2;
+  min-width: 140px;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.phase-edit-top input.phase-when {
+  flex: 1;
+  min-width: 110px;
+}
+.phase-edit textarea {
+  min-height: 52px;
+  font-size: 13px;
+}
+.phase-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--olive-bright);
+  border: 1px solid var(--olive);
+  padding: 2px 7px;
+  flex: none;
+}
+
+.phase-timeline {
+  margin: 4px 0 14px;
+}
+.phase {
+  display: flex;
+  gap: 12px;
+}
+.phase-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  width: 24px;
+}
+.phase-dot {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--olive);
+  color: var(--olive-bright);
+  background: #10130f;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.phase-line {
+  width: 1px;
+  flex: 1;
+  min-height: 12px;
+  background: var(--line-strong);
+}
+.phase-content {
+  padding-bottom: 14px;
+  min-width: 0;
+  flex: 1;
+}
+.phase-title {
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.phase-when-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  border: 1px solid rgba(200, 146, 47, 0.5);
+  padding: 1px 7px;
+}
+.phase-body {
+  font-size: 13px;
+  color: var(--ink-dim);
+  margin-top: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.react-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.react-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #121612;
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  font-size: 14px;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, transform 0.1s;
+}
+.react-btn:hover {
+  border-color: var(--olive);
+}
+.react-btn:active {
+  transform: scale(0.92);
+}
+.react-btn.on {
+  border-color: var(--olive-bright);
+  background: rgba(111, 122, 68, 0.16);
+}
+.react-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+}
+.plan-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.plan-foot {
+  align-items: center;
+}
+
+/* Jedinice — dodatno */
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.flag.sm {
+  width: 22px;
+  height: 15px;
+  vertical-align: -2px;
+  margin-right: 8px;
+}
+.unit-brand-txt {
+  min-width: 0;
+}
+.unit-name {
+  display: flex;
+  align-items: center;
+}
+
 @media (max-width: 720px) {
   .topbar {
     height: auto;
@@ -929,8 +1392,31 @@ table.grid tr:hover td {
     flex-direction: column;
     align-items: stretch;
   }
+  .battle-sides,
+  .battle-right {
+    min-width: 0;
+  }
+  .side-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 38vw;
+  }
   .chat-single {
     height: auto;
     min-height: 60vh;
+  }
+  .form-row .field {
+    min-width: 100%;
+  }
+  .dd-btn {
+    min-width: 110px;
+  }
+  .contract-name {
+    max-width: 90px;
+  }
+  .plan-foot {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
   }
 }

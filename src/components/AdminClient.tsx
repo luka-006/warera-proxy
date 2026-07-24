@@ -92,6 +92,27 @@ export default function AdminClient() {
     await loadMus();
   }
 
+  async function discoverMus() {
+    setBusy(true);
+    setMsg("Skeniram War Era ljestvicu za HR/KG jedinice...");
+    try {
+      const r = await fetch("/api/warera/units", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ discover: true })
+      });
+      const data = await r.json();
+      setMsg(
+        r.ok
+          ? `Pronadeno ${data.found} jedinica: ${(data.names ?? []).join(", ")}`
+          : data.error ?? "Otkrivanje nije uspjelo."
+      );
+      await loadMus();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div>
       <div className="section-head">
@@ -188,13 +209,17 @@ export default function AdminClient() {
             <span className="mono">app.warera.io/mu/...</span>
           </p>
           {msg && <div className="notice">{msg}</div>}
-          <form onSubmit={addMu} style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+          <form onSubmit={addMu} style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
             <input
               value={muInput}
               onChange={(e) => setMuInput(e.target.value)}
               placeholder="MU ID ili link"
+              style={{ flex: 1, minWidth: 200 }}
             />
             <button className="btn btn-primary">Dodaj</button>
+            <button type="button" className="btn" onClick={discoverMus} disabled={busy}>
+              {busy ? "Skeniram..." : "Pronadi HR/KG jedinice"}
+            </button>
           </form>
           <table className="grid">
             <thead>

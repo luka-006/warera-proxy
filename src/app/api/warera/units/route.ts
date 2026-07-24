@@ -3,10 +3,16 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { trackedMus } from "@/db/schema";
 import { requireActive, requireAdmin } from "@/lib/guards";
-import { getMilitaryUnits, isConfigured, parseMuId } from "@/lib/warera";
+import {
+  discoverCroatianMus,
+  getMilitaryUnits,
+  isConfigured,
+  parseMuId
+} from "@/lib/warera";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function GET() {
   const auth = await requireActive();
@@ -40,6 +46,7 @@ export async function GET() {
 
   try {
     const units = await getMilitaryUnits(allIds);
+    units.sort((a, b) => (b.weeklyDamage ?? 0) - (a.weeklyDamage ?? 0));
     return NextResponse.json({ units, configured: true, fetchedAt: new Date().toISOString() });
   } catch {
     return NextResponse.json(
@@ -49,16 +56,38 @@ export async function GET() {
   }
 }
 
-// Admin: dodaj MU
+// Admin: dodaj MU rucno ili { discover: true } za automatsko otkrivanje HR/KG jedinica
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
-  let body: { muIdOrUrl?: string; label?: string };
+  let body: { muIdOrUrl?: string; label?: string; discover?: boolean };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Neispravan zahtjev." }, { status: 400 });
+  }
+
+  if (body.discover) {
+    if (!isConfigured()) {
+      return NextResponse.json({ error: "API kljuc nije postavljen." }, { status: 400 });
+    }
+    try {
+      const found = await discoverCroatianMus();
+      for (const mu of found) {
+        await db
+          .insert(trackedMus)
+          .values({ muId: mu.id, label: mu.name, addedBy: "auto" })
+          .onConflictDoNothing();
+      }
+      return NextResponse.json({
+        ok: true,
+        found: found.length,
+        names: found.map((f) => f.name)
+      });
+    } catch {
+      return NextResponse.json({ error: "Otkrivanje nije uspjelo." }, { status: 502 });
+    }
   }
 
   const muId = parseMuId(body.muIdOrUrl ?? "");

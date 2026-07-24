@@ -17,6 +17,8 @@ interface Unit {
   name: string;
   avatarUrl?: string;
   link: string;
+  countryCode?: string;
+  countryName?: string;
   memberCount: number;
   commanders: Member[];
   managers: Member[];
@@ -44,6 +46,13 @@ function Avatar({ url, name, size = 36 }: { url?: string; name: string; size?: n
   );
 }
 
+function fmtDamage(n?: number) {
+  if (!n) return null;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  return String(n);
+}
+
 function MemberRow({ m }: { m: Member }) {
   return (
     <a href={m.link} target="_blank" rel="noreferrer" className="member-row">
@@ -56,10 +65,11 @@ function MemberRow({ m }: { m: Member }) {
   );
 }
 
-export default function UnitsClient() {
+export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const [units, setUnits] = useState<Unit[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [discovering, setDiscovering] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -80,14 +90,48 @@ export default function UnitsClient() {
     return () => clearInterval(t);
   }, [load]);
 
+  async function discover() {
+    setDiscovering(true);
+    setMessage("Skeniram War Era ljestvicu za HR/KG jedinice...");
+    try {
+      const res = await fetch("/api/warera/units", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ discover: true })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage(`Pronadeno ${data.found} jedinica: ${(data.names ?? []).join(", ")}`);
+        await load();
+      } else {
+        setMessage(data.error ?? "Otkrivanje nije uspjelo.");
+      }
+    } catch {
+      setMessage("Otkrivanje nije uspjelo.");
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
   return (
     <div>
       <div className="section-head">
         <h1>Vojne jedinice</h1>
-        <button className="btn btn-sm" onClick={() => load()}>
-          Osvjezi
-        </button>
+        <div className="head-actions">
+          {isAdmin && (
+            <button className="btn btn-sm" onClick={discover} disabled={discovering}>
+              {discovering ? "Skeniram..." : "Pronadi HR/KG jedinice"}
+            </button>
+          )}
+          <button className="btn btn-sm" onClick={() => load()}>
+            Osvjezi
+          </button>
+        </div>
       </div>
+
+      <p className="muted" style={{ marginTop: -8, marginBottom: 16 }}>
+        Hrvatske jedinice i jedinice Kirgistana (proxy drzava Hrvatske).
+      </p>
 
       {message && <div className="notice">{message}</div>}
       {loading && units.length === 0 && <div className="empty">Ucitavanje jedinica...</div>}
@@ -98,16 +142,29 @@ export default function UnitsClient() {
       <div className="unit-list">
         {units.map((u) => {
           const open = openId === u.id;
+          const dmg = fmtDamage(u.weeklyDamage);
           return (
             <article key={u.id} className="unit-card">
               <div className="unit-head">
                 <a href={u.link} target="_blank" rel="noreferrer" className="unit-brand">
                   <Avatar url={u.avatarUrl} name={u.name} size={48} />
-                  <div>
-                    <div className="unit-name">{u.name}</div>
+                  <div className="unit-brand-txt">
+                    <div className="unit-name">
+                      {u.countryCode && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          className="flag sm"
+                          src={`https://flagcdn.com/w40/${u.countryCode.toLowerCase()}.png`}
+                          alt={u.countryName ?? u.countryCode}
+                          title={u.countryName}
+                        />
+                      )}
+                      {u.name}
+                    </div>
                     <div className="unit-meta">
                       {u.memberCount} clanova
-                      {u.weeklyRank ? ` · tjedni rang #${u.weeklyRank}` : ""}
+                      {u.weeklyRank ? ` · rang #${u.weeklyRank}` : ""}
+                      {dmg ? ` · ${dmg} tjedna steta` : ""}
                     </div>
                   </div>
                 </a>
@@ -121,7 +178,7 @@ export default function UnitsClient() {
                 </div>
               </div>
 
-              {u.commanders.length > 0 && (
+              {u.commanders.length + u.managers.length > 0 && (
                 <div className="unit-section">
                   <div className="unit-section-lbl">Zapovjednistvo</div>
                   <div className="member-list">
@@ -133,7 +190,7 @@ export default function UnitsClient() {
               )}
 
               {open && (
-                <div className="unit-section">
+                <div className="unit-section reveal">
                   <div className="unit-section-lbl">Vojnici</div>
                   <div className="member-list">
                     {u.soldiers.length === 0 ? (

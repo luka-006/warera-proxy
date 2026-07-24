@@ -1,14 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { plans, users } from "@/db/schema";
+import { planReactions, plans, users } from "@/db/schema";
 import { requireActive, requireCommander } from "@/lib/guards";
 import { newId } from "@/lib/ids";
+import { battleLink } from "@/lib/warera";
 
 export const runtime = "nodejs";
 
 const TYPES = ["zapovijed", "plan", "program"];
 const PRIORITIES = ["HITNO", "VISOKO", "NORMALNO", "NISKO"];
+
+export interface PlanPhase {
+  title: string;
+  when: string;
+  body: string;
+}
+
+function parsePhases(raw: string | null): PlanPhase[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function sanitizePhases(input: unknown): PlanPhase[] | null {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input) || input.length > 12) return null;
+  const out: PlanPhase[] = [];
+  for (const p of input) {
+    const title = String(p?.title ?? "").trim().slice(0, 80);
+    const when = String(p?.when ?? "").trim().slice(0, 60);
+    const body = String(p?.body ?? "").trim().slice(0, 1500);
+    if (!title && !body) continue;
+    out.push({ title, when, body });
+  }
+  return out;
+}
 
 export async function GET() {
   const auth = await requireActive();
@@ -21,6 +52,9 @@ export async function GET() {
       body: plans.body,
       type: plans.type,
       priority: plans.priority,
+      phases: plans.phases,
+      battleId: plans.battleId,
+      battleLabel: plans.battleLabel,
       createdAt: plans.createdAt,
       updatedAt: plans.updatedAt,
       author: users.callsign,
@@ -31,14 +65,54 @@ export async function GET() {
     .orderBy(desc(plans.createdAt))
     .limit(100);
 
-  return NextResponse.json({ plans: rows });
+  // Reakcije za prikazane planove
+  const ids = rows.map((r) => r.id);
+  const reactions = ids.length
+    ? await db
+        .select({
+          planId: planReactions.planId,
+          userId: planReactions.userId,
+          emoji: planReactions.emoji
+        })
+        .from(planReactions)
+        .where(inArray(planReactions.planId, ids))
+    : [];
+
+  const byPlan = new Map<string, { counts: Record<string, number>; mine: string[] }>();
+  for (const r of reactions) {
+    let entry = byPlan.get(r.planId);
+    if (!entry) {
+      entry = { counts: {}, mine: [] };
+      byPlan.set(r.planId, entry);
+    }
+    entry.counts[r.emoji] = (entry.counts[r.emoji] ?? 0) + 1;
+    if (r.userId === auth.user.id) entry.mine.push(r.emoji);
+  }
+
+  const out = rows.map((r) => ({
+    ...r,
+    phases: parsePhases(r.phases),
+    battleLink: r.battleId ? battleLink(r.battleId) : null,
+    reactions: byPlan.get(r.id)?.counts ?? {},
+    myReactions: byPlan.get(r.id)?.mine ?? []
+  }));
+
+  return NextResponse.json({ plans: out });
 }
 
 export async function POST(req: NextRequest) {
   const auth = await requireCommander();
   if ("error" in auth) return auth.error;
 
-  let body: { title?: string; body?: string; type?: string; priority?: string };
+  let body: {
+    title?: string;
+    body?: string;
+    type?: string;
+    priority?: string;
+    phases?: unknown;
+    battleId?: string;
+    battleLabel?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -59,6 +133,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Tekst 1-8000 znakova." }, { status: 400 });
   }
 
+  const phases = sanitizePhases(body.phases);
+  if (phases === null) {
+    return NextResponse.json({ error: "Najvise 12 faza." }, { status: 400 });
+  }
+
+  const battleId = (body.battleId ?? "").trim().slice(0, 40) || null;
+  const battleLabel = (body.battleLabel ?? "").trim().slice(0, 120) || null;
+
   const id = newId();
   const now = new Date();
   await db.insert(plans).values({
@@ -67,6 +149,9 @@ export async function POST(req: NextRequest) {
     body: text,
     type,
     priority,
+    phases: phases.length ? JSON.stringify(phases) : null,
+    battleId,
+    battleLabel,
     userId: auth.user.id,
     createdAt: now,
     updatedAt: now
@@ -79,6 +164,12 @@ export async function POST(req: NextRequest) {
       body: text,
       type,
       priority,
+      phases,
+      battleId,
+      battleLabel,
+      battleLink: battleId ? battleLink(battleId) : null,
+      reactions: {},
+      myReactions: [],
       createdAt: now,
       updatedAt: now,
       author: auth.user.callsign,

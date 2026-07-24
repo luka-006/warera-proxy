@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Dropdown from "@/components/Dropdown";
 
+interface MuContract {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  link: string;
+}
 interface BattleSide {
   countryId?: string;
   name?: string;
@@ -9,6 +16,9 @@ interface BattleSide {
   damage?: number;
   points?: number;
   link?: string;
+  bountyPer1k?: number;
+  bountyPool?: number;
+  contracts?: MuContract[];
 }
 interface Battle {
   id: string;
@@ -41,6 +51,14 @@ const PRIO_COLOR: Record<string, string> = {
   VISOKO: "var(--prio-visoko)",
   NORMALNO: "var(--prio-normalno)",
   NISKO: "var(--prio-nisko)"
+};
+
+// P1 najvisi prioritet
+const PIN_COLOR: Record<number, string> = {
+  1: "var(--prio-hitno)",
+  2: "var(--prio-visoko)",
+  3: "var(--prio-normalno)",
+  4: "var(--prio-nisko)"
 };
 
 function flagUrl(code?: string) {
@@ -88,6 +106,10 @@ function timeAgo(d: string | number | Date) {
   if (s < 3600) return `prije ${Math.floor(s / 60)} min`;
   if (s < 86400) return `prije ${Math.floor(s / 3600)} h`;
   return new Date(d).toLocaleDateString("hr-HR");
+}
+
+function money(n: number) {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toFixed(n < 10 ? 2 : 0);
 }
 
 export default function Watchtower({ canCommand }: { canCommand: boolean }) {
@@ -151,19 +173,18 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
         .toLowerCase();
       return hay.includes(query);
     });
-    // Prioritetne (pin) prvo, zatim po steti
+    // Prioritetne (P1 > P2 > P3 > P4) prvo, zatim po steti
     return [...list].sort((a, b) => {
-      const pa = pins[a.id] ?? 0;
-      const pb = pins[b.id] ?? 0;
-      if (pb !== pa) return pb - pa;
+      const pa = pins[a.id] ?? 99;
+      const pb = pins[b.id] ?? 99;
+      if (pa !== pb) return pa - pb;
       return (b.totalDamage ?? 0) - (a.totalDamage ?? 0);
     });
   }, [battles, notes, pins, q]);
 
-  async function togglePin(battle: Battle) {
+  async function setPin(battle: Battle, prio: number | null) {
     if (!canCommand) return;
-    const pinned = Boolean(pins[battle.id]);
-    if (pinned) {
+    if (prio === null) {
       await fetch(`/api/pins?battleId=${encodeURIComponent(battle.id)}`, { method: "DELETE" });
       setPins((prev) => {
         const next = { ...prev };
@@ -174,9 +195,9 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
       await fetch("/api/pins", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ battleId: battle.id, battleLabel: battle.label, weight: 3 })
+        body: JSON.stringify({ battleId: battle.id, battleLabel: battle.label, weight: prio })
       });
-      setPins((prev) => ({ ...prev, [battle.id]: 3 }));
+      setPins((prev) => ({ ...prev, [battle.id]: prio }));
     }
   }
 
@@ -212,9 +233,9 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
             key={b.id}
             battle={b}
             notes={notes[b.id] ?? []}
-            pinned={Boolean(pins[b.id])}
+            pinPrio={pins[b.id] ?? null}
             canCommand={canCommand}
-            onTogglePin={() => togglePin(b)}
+            onSetPin={(prio) => setPin(b, prio)}
             onNotesChange={(next) => setNotes((prev) => ({ ...prev, [b.id]: next }))}
           />
         ))}
@@ -223,19 +244,142 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
   );
 }
 
+function PinMenu({
+  prio,
+  onSet
+}: {
+  prio: number | null;
+  onSet: (p: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <div className="dd pin-dd" ref={ref}>
+      <button
+        className={`pin-btn ${prio ? "on" : ""}`}
+        style={prio ? { color: PIN_COLOR[prio] } : undefined}
+        onClick={() => setOpen((v) => !v)}
+        title={prio ? `Prioritet P${prio}` : "Oznaci prioritet bitke"}
+      >
+        {prio ? "★" : "☆"}
+      </button>
+      {open && (
+        <div className="dd-menu pin-menu">
+          <div className="dd-title">Prioritet bitke</div>
+          {[1, 2, 3, 4].map((p) => (
+            <button
+              key={p}
+              className={`dd-item ${prio === p ? "sel" : ""}`}
+              style={{ color: PIN_COLOR[p] }}
+              onClick={() => {
+                onSet(p);
+                setOpen(false);
+              }}
+            >
+              <span>★ Prio {p}</span>
+              <span className="dd-hint">
+                {p === 1 ? "hitno" : p === 2 ? "visoko" : p === 3 ? "srednje" : "nisko"}
+              </span>
+            </button>
+          ))}
+          {prio && (
+            <button
+              className="dd-item dd-danger"
+              onClick={() => {
+                onSet(null);
+                setOpen(false);
+              }}
+            >
+              Makni prioritet
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Contracts({ battle }: { battle: Battle }) {
+  const att = battle.attacker.contracts ?? [];
+  const def = battle.defender.contracts ?? [];
+  if (!att.length && !def.length) return null;
+  return (
+    <div className="contracts">
+      <span className="contracts-lbl">Ugovori</span>
+      {[...att.map((c) => ({ c, s: "N" })), ...def.map((c) => ({ c, s: "B" }))].map(({ c, s }) => (
+        <a
+          key={`${s}-${c.id}`}
+          href={c.link}
+          target="_blank"
+          rel="noreferrer"
+          className="contract-mu"
+          title={`${c.name} (${s === "N" ? "napadac" : "branitelj"})`}
+        >
+          {c.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={c.avatarUrl} alt={c.name} />
+          ) : (
+            <span className="contract-fallback">{c.name.slice(0, 2).toUpperCase()}</span>
+          )}
+          <span className="contract-name">{c.name}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function BountyChips({ battle }: { battle: Battle }) {
+  const chips: { key: string; text: string; title: string }[] = [];
+  for (const [side, lbl] of [
+    [battle.attacker, "napadac"],
+    [battle.defender, "branitelj"]
+  ] as const) {
+    if (side.bountyPer1k || side.bountyPool) {
+      const parts: string[] = [];
+      if (side.bountyPer1k) parts.push(`$${money(side.bountyPer1k)}/1k`);
+      if (side.bountyPool) parts.push(`fond $${money(side.bountyPool)}`);
+      chips.push({
+        key: lbl,
+        text: parts.join(" · "),
+        title: `Bounty za stranu: ${side.name ?? lbl}`
+      });
+    }
+  }
+  if (!chips.length) return null;
+  return (
+    <>
+      {chips.map((c) => (
+        <span key={c.key} className="meta-chip bounty" title={c.title}>
+          {c.text}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function BattleCard({
   battle,
   notes,
-  pinned,
+  pinPrio,
   canCommand,
-  onTogglePin,
+  onSetPin,
   onNotesChange
 }: {
   battle: Battle;
   notes: Note[];
-  pinned: boolean;
+  pinPrio: number | null;
   canCommand: boolean;
-  onTogglePin: () => void;
+  onSetPin: (p: number | null) => void;
   onNotesChange: (n: Note[]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -252,8 +396,8 @@ function BattleCard({
     const o = ["NISKO", "NORMALNO", "VISOKO", "HITNO"];
     return o.indexOf(n.priority) > o.indexOf(acc) ? n.priority : acc;
   }, "");
-  const border = pinned
-    ? "var(--prio-hitno)"
+  const border = pinPrio
+    ? PIN_COLOR[pinPrio]
     : topNotePrio
       ? PRIO_COLOR[topNotePrio]
       : "var(--line-strong)";
@@ -290,19 +434,26 @@ function BattleCard({
   }
 
   return (
-    <article className={`battle ${pinned ? "battle-pinned" : ""}`} style={{ borderLeftColor: border }}>
+    <article
+      className={`battle ${pinPrio ? "battle-pinned" : ""}`}
+      style={{ borderLeftColor: border }}
+    >
       <div className="battle-simple">
         <div className="battle-sides">
-          {canCommand && (
-            <button
-              className={`pin-btn ${pinned ? "on" : ""}`}
-              onClick={onTogglePin}
-              title={pinned ? "Makni prioritet" : "Oznaci kao prioritetnu bitku"}
-            >
-              {pinned ? "★" : "☆"}
-            </button>
+          {canCommand ? (
+            <PinMenu prio={pinPrio} onSet={onSetPin} />
+          ) : (
+            pinPrio && (
+              <span className="pin-btn on" style={{ color: PIN_COLOR[pinPrio] }} title={`Prioritet P${pinPrio}`}>
+                ★
+              </span>
+            )
           )}
-          {!canCommand && pinned && <span className="pin-btn on" title="Prioritet">★</span>}
+          {pinPrio && (
+            <span className="pin-badge" style={{ color: PIN_COLOR[pinPrio], borderColor: PIN_COLOR[pinPrio] }}>
+              P{pinPrio}
+            </span>
+          )}
 
           <Flag side={battle.attacker} />
           <Ext href={battle.attacker.link} className="side-name">
@@ -316,6 +467,7 @@ function BattleCard({
         </div>
 
         <div className="battle-right">
+          <BountyChips battle={battle} />
           {battle.regionName && (
             <Ext href={battle.regionLink} className="meta-chip">
               {battle.regionName}
@@ -339,6 +491,8 @@ function BattleCard({
           <div className="def" style={{ width: `${100 - attPct}%` }} />
         </div>
       </Ext>
+
+      <Contracts battle={battle} />
 
       {notes.length > 0 && (
         <div className="notes">
@@ -375,11 +529,15 @@ function BattleCard({
               maxLength={500}
             />
             <div className="note-form-row">
-              <select value={priority} onChange={(e) => setPriority(e.target.value)}>
-                <option value="HITNO">HITNO</option>
-                <option value="VISOKO">VISOKO</option>
-                <option value="NORMALNO">NORMALNO</option>
-              </select>
+              <Dropdown
+                value={priority}
+                onChange={setPriority}
+                options={[
+                  { value: "HITNO", label: "HITNO", color: PRIO_COLOR.HITNO },
+                  { value: "VISOKO", label: "VISOKO", color: PRIO_COLOR.VISOKO },
+                  { value: "NORMALNO", label: "NORMALNO", color: PRIO_COLOR.NORMALNO }
+                ]}
+              />
               <button className="btn btn-primary btn-sm" disabled={saving}>
                 Objavi
               </button>
