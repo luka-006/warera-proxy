@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, asc, eq, gt } from "drizzle-orm";
 import { db } from "@/db";
 import { channels, messages, users } from "@/db/schema";
-import { requireActive } from "@/lib/guards";
+import { requireCommander } from "@/lib/guards";
 import { newId } from "@/lib/ids";
 import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 
+// Chat je interni kanal zapovjednistva — vojnici nemaju pristup.
 // GET /api/chat/messages?channelId=...&after=<isoOrEmpty>
 export async function GET(req: NextRequest) {
-  const auth = await requireActive();
+  const auth = await requireCommander();
   if ("error" in auth) return auth.error;
 
   const channelId = req.nextUrl.searchParams.get("channelId");
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
     .select({
       id: messages.id,
       body: messages.body,
+      pinned: messages.pinned,
       createdAt: messages.createdAt,
       author: users.callsign,
       authorRank: users.rank
@@ -43,11 +45,10 @@ export async function GET(req: NextRequest) {
 
 // POST /api/chat/messages { channelId, body }
 export async function POST(req: NextRequest) {
-  const auth = await requireActive();
+  const auth = await requireCommander();
   if ("error" in auth) return auth.error;
 
   const user = auth.user;
-  // Svi aktivni igraci mogu pisati u zajednicki chat
   const rl = rateLimit(`chat:${user.id}`, 20, 30_000);
   if (!rl.ok) {
     return NextResponse.json({ error: "Uspori malo." }, { status: 429 });
@@ -78,9 +79,40 @@ export async function POST(req: NextRequest) {
     message: {
       id,
       body: text,
+      pinned: false,
       createdAt,
       author: user.callsign,
       authorRank: user.rank
     }
   });
+}
+
+// PATCH { messageId, pinned } — prikvaci/otkvaci poruku
+export async function PATCH(req: NextRequest) {
+  const auth = await requireCommander();
+  if ("error" in auth) return auth.error;
+
+  let payload: { messageId?: string; pinned?: boolean };
+  try {
+    payload = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Neispravan zahtjev." }, { status: 400 });
+  }
+
+  const messageId = (payload.messageId ?? "").trim();
+  if (!messageId) return NextResponse.json({ error: "Nedostaje poruka." }, { status: 400 });
+
+  const rows = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .limit(1);
+  if (!rows[0]) return NextResponse.json({ error: "Poruka ne postoji." }, { status: 404 });
+
+  await db
+    .update(messages)
+    .set({ pinned: Boolean(payload.pinned) })
+    .where(eq(messages.id, messageId));
+
+  return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Help from "@/components/Help";
 
 interface Member {
   id: string;
@@ -118,9 +119,10 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
       <div className="section-head">
         <h1>Vojne jedinice</h1>
         <div className="head-actions">
+          <Help text="Prati se svaka jedinica pod hrvatskim zapovjednistvom, ukljucujuci one registrirane pod Kirgistanom. Skeniranje pronalazi nove jedinice automatski." />
           {isAdmin && (
             <button className="btn btn-sm" onClick={discover} disabled={discovering}>
-              {discovering ? "Skeniram..." : "Pronadi HR/KG jedinice"}
+              {discovering ? "Skeniram..." : "Skeniraj"}
             </button>
           )}
           <button className="btn btn-sm" onClick={() => load()}>
@@ -128,10 +130,6 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
           </button>
         </div>
       </div>
-
-      <p className="muted" style={{ marginTop: -8, marginBottom: 16 }}>
-        Hrvatske jedinice i jedinice Kirgistana (proxy drzava Hrvatske).
-      </p>
 
       {message && <div className="notice">{message}</div>}
       {loading && units.length === 0 && <div className="empty">Ucitavanje jedinica...</div>}

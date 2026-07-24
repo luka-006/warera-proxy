@@ -98,60 +98,78 @@ h3 {
   display: flex;
   align-items: center;
   gap: 20px;
-  padding: 0 20px;
-  height: 52px;
+  padding: 8px 20px;
+  min-height: 58px;
   border-bottom: 1px solid var(--line-strong);
   background: linear-gradient(180deg, #171c16, #10130f);
 }
 
 .brand {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
   font-family: var(--mono);
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  font-size: 15px;
+  font-size: 18px;
   color: var(--ink);
+  white-space: nowrap;
 }
 .brand .dot {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
   background: var(--olive-bright);
   display: inline-block;
+  box-shadow: 0 0 8px rgba(153, 168, 91, 0.5);
 }
 .brand .sub {
   font-size: 10px;
   letter-spacing: 0.3em;
   color: var(--ink-faint);
+  margin-left: 10px;
+}
+.brand-main {
+  display: inline-flex;
+  align-items: baseline;
 }
 
 .nav {
   display: flex;
-  gap: 2px;
+  gap: 6px;
   height: 100%;
-  align-items: stretch;
+  align-items: center;
   flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav::-webkit-scrollbar {
+  display: none;
 }
 .nav a {
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 8px 18px;
   color: var(--ink-dim);
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  border-bottom: 2px solid transparent;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 .nav a:hover {
   color: var(--ink);
   text-decoration: none;
+  border-color: var(--line-strong);
   background: rgba(255, 255, 255, 0.02);
 }
 .nav a.active {
-  color: var(--ink);
-  border-bottom-color: var(--olive-bright);
+  color: var(--olive-bright);
+  border-color: var(--olive);
+  background: rgba(111, 122, 68, 0.1);
 }
 
 .topbar-right {
@@ -440,20 +458,70 @@ textarea {
   background: #1a1f17;
   border-color: #4a3a2a;
 }
-.battle-simple {
+/* Kompaktni red bitke — klik otvara detalje */
+.battle-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  padding: 11px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
 }
-.battle-sides {
+.battle-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.battle.open .battle-row {
+  border-bottom: 1px solid var(--line);
+}
+.battle-title {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex: 1;
   flex-wrap: wrap;
+}
+.row-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.tag-ind {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  padding: 2px 7px;
+  background: #121612;
+}
+.tag-ind.units {
+  color: var(--olive-bright);
+  border-color: var(--olive);
+}
+.tag-ind.bounty {
+  color: var(--amber);
+  border-color: rgba(200, 146, 47, 0.55);
+}
+.chevron {
+  color: var(--ink-faint);
+  font-size: 11px;
+  transition: transform 0.18s ease;
+  padding: 0 2px;
+}
+.chevron.up {
+  transform: rotate(180deg);
+}
+.battle-detail {
+  padding-top: 10px;
+}
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 14px 10px;
 }
 .pin-btn {
   background: none;
@@ -519,12 +587,6 @@ textarea {
   font-size: 9px;
   color: var(--ink-faint);
   flex: none;
-}
-.battle-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 .meta-chip {
   display: inline-flex;
@@ -950,24 +1012,30 @@ table.grid tr:hover td {
 
 .tabs {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   margin-bottom: 18px;
+  flex-wrap: wrap;
 }
 .tabs button {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding: 8px 14px;
-  background: none;
-  border: 1px solid var(--line);
+  padding: 11px 22px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
   color: var(--ink-dim);
   cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.tabs button:hover {
+  border-color: var(--olive);
+  color: var(--ink);
 }
 .tabs button.active {
-  background: var(--panel-2);
-  color: var(--ink);
-  border-color: var(--olive);
+  background: rgba(111, 122, 68, 0.12);
+  color: var(--olive-bright);
+  border-color: var(--olive-bright);
 }
 
 /* --- Padajuci izbornici (dropdown) --- */
@@ -1356,9 +1424,294 @@ table.grid tr:hover td {
   align-items: center;
 }
 
+/* Suptilna pomoc "?" */
+.help {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.help-btn {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: border-color 0.12s, color 0.12s;
+}
+.help-btn:hover {
+  border-color: var(--olive-bright);
+  color: var(--olive-bright);
+}
+.help-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: 240px;
+  background: #12160f;
+  border: 1px solid var(--olive);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: var(--sans);
+  font-weight: 400;
+  white-space: normal;
+  text-align: left;
+}
+
+.dd-empty {
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* Dodijeljene jedinice na bitci */
+.assign-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 14px 10px;
+}
+.assign-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--olive-bright);
+  border: 1px solid var(--olive);
+  background: rgba(111, 122, 68, 0.1);
+  padding: 4px 9px;
+}
+.assign-x {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.assign-x:hover {
+  color: var(--danger-bright);
+}
+
+/* Oprema (ikone iz War Ere) */
+.gear-row,
+.gear-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gear-row {
+  margin-bottom: 12px;
+}
+.gear-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: #121612;
+  padding: 4px 9px 4px 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.gear-chip img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex: none;
+}
+.gear-chip.pick {
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.gear-chip.pick:hover {
+  border-color: var(--olive);
+}
+.gear-chip.pick.on {
+  border-color: var(--olive-bright);
+  background: rgba(111, 122, 68, 0.16);
+  color: var(--ink);
+}
+
+/* Lanac planova */
+.plan-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.chain-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--steel);
+  border: 1px dashed var(--line-strong);
+  padding: 4px 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chain-chip:hover {
+  border-color: var(--olive-bright);
+  color: var(--olive-bright);
+  text-decoration: none;
+}
+.chain-chip.next {
+  color: var(--olive-bright);
+  border-style: solid;
+  border-color: var(--olive);
+}
+.plan-card.is-cmd {
+  background: #1a1f17;
+  border-color: var(--olive);
+}
+.type-chip.cmd {
+  color: var(--olive-bright);
+  border-color: var(--olive);
+}
+
+/* Zapovjedni kanal */
+.cmd-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--olive);
+  background: rgba(111, 122, 68, 0.1);
+  color: var(--ink);
+  text-decoration: none;
+  flex-wrap: wrap;
+}
+.cmd-banner:hover {
+  text-decoration: none;
+  background: rgba(111, 122, 68, 0.16);
+}
+.cmd-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--olive-bright);
+  border: 1px solid var(--olive);
+  padding: 2px 7px;
+  flex: none;
+}
+.cmd-title {
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.cmd-battle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--amber);
+  cursor: pointer;
+  flex: none;
+}
+.pinned-strip {
+  border-bottom: 1px solid var(--line);
+  background: #14180f;
+  max-height: 130px;
+  overflow-y: auto;
+}
+.pinned-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: 12px;
+  border-bottom: 1px dotted var(--line);
+}
+.pinned-msg:last-child {
+  border-bottom: none;
+}
+.pin-ico {
+  font-size: 11px;
+  flex: none;
+}
+.pinned-body {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-dim);
+}
+.pinned-body b {
+  color: var(--olive-bright);
+  font-weight: 600;
+}
+.msg .msg-pin {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 4px;
+  opacity: 0;
+  filter: grayscale(1);
+  transition: opacity 0.12s, filter 0.12s;
+}
+.msg:hover .msg-pin {
+  opacity: 0.7;
+}
+.msg .msg-pin.on {
+  opacity: 1;
+  filter: none;
+}
+.msg.is-pinned {
+  border-left: 2px solid var(--olive);
+  padding-left: 10px;
+  background: rgba(111, 122, 68, 0.05);
+}
+.chat-tool {
+  white-space: nowrap;
+  height: 100%;
+}
+.chat-battle-menu {
+  bottom: calc(100% + 6px);
+  top: auto;
+  min-width: 240px;
+  max-width: 320px;
+}
+.chat-battle-menu .dd-item {
+  white-space: normal;
+  text-align: left;
+}
+.chat-input .dd {
+  display: flex;
+  align-items: stretch;
+}
+
 /* Jedinice — dodatno */
 .head-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -1378,32 +1731,64 @@ table.grid tr:hover td {
 
 @media (max-width: 720px) {
   .topbar {
-    height: auto;
+    min-height: 0;
     flex-wrap: wrap;
     padding: 10px 14px;
     gap: 10px;
+  }
+  .brand {
+    font-size: 14px;
+    letter-spacing: 0.1em;
+  }
+  .brand .sub {
+    display: none;
+  }
+  .topbar-right {
+    margin-left: auto;
   }
   .nav {
     order: 3;
     flex-basis: 100%;
     overflow-x: auto;
   }
-  .battle-simple {
-    flex-direction: column;
-    align-items: stretch;
+  .nav a {
+    padding: 8px 14px;
+    font-size: 12px;
   }
-  .battle-sides,
-  .battle-right {
-    min-width: 0;
+  .content {
+    padding: 16px 12px 60px;
+  }
+  .battle-row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .battle-title {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .row-tags {
+    margin-left: auto;
   }
   .side-name {
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 38vw;
+    max-width: 34vw;
+    font-size: 13px;
+  }
+  .detail-meta {
+    gap: 6px;
   }
   .chat-single {
-    height: auto;
-    min-height: 60vh;
+    height: calc(100dvh - 210px);
+    min-height: 380px;
+  }
+  .chat-input {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chat-input input {
+    flex-basis: 100%;
+    order: -1;
   }
   .form-row .field {
     min-width: 100%;
@@ -1414,9 +1799,21 @@ table.grid tr:hover td {
   .contract-name {
     max-width: 90px;
   }
+  .gear-chip .gear-name {
+    display: none;
+  }
   .plan-foot {
     flex-direction: column;
     gap: 8px;
+    align-items: flex-start;
+  }
+  .help-pop {
+    width: 200px;
+  }
+  .phase-edit-top input {
+    min-width: 100%;
+  }
+  .unit-head {
     align-items: flex-start;
   }
 }

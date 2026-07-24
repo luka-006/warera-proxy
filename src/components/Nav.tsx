@@ -2,12 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-
-const RANK_LABEL: Record<string, string> = {
-  admin: "Administrator",
-  zapovjednik: "Zapovjednik",
-  vojnik: "Vojnik"
-};
+import { RANK_LABEL, isCommandRank } from "@/lib/ranks";
 
 export default function Nav({
   callsign,
@@ -22,9 +17,11 @@ export default function Nav({
   const links = [
     { href: "/", label: "Ploca" },
     { href: "/plan", label: "Plan" },
-    { href: "/jedinice", label: "Jedinice" },
-    { href: "/chat", label: "Chat" }
+    { href: "/jedinice", label: "Jedinice" }
   ];
+  if (isCommandRank(rank)) {
+    links.push({ href: "/chat", label: "Kanal" });
+  }
   if (rank === "admin") {
     links.push({ href: "/admin", label: "Sucelje" });
   }
@@ -39,7 +36,9 @@ export default function Nav({
     <header className="topbar">
       <Link href="/" className="brand" style={{ textDecoration: "none" }}>
         <span className="dot" />
-        WARERA<span className="sub">HR OPS</span>
+        <span className="brand-main">
+          HR OPERATIVNI CENTAR<span className="sub">HROC</span>
+        </span>
       </Link>
       <nav className="nav">
         {links.map((l) => {

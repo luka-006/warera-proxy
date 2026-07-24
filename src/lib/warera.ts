@@ -347,20 +347,22 @@ export async function getMilitaryUnit(muId: string): Promise<MilitaryUnit | null
   const managerIds: string[] = raw?.roles?.managers ?? [];
   const memberIds: string[] = raw?.members ?? [];
 
-  // Resolve up to 40 members for display (commanders first)
+  // Resolve up to 40 members for display (commanders first).
+  // Ograniceni paralelizam da API ne odbija zahtjeve; nerazrijesene preskacemo
+  // (inace bi se prikazivali fragmenti ID-a umjesto imena).
   const priority = [
     ...new Set([...commanderIds, ...managerIds, ...memberIds])
   ].slice(0, 40);
 
-  const resolved = await Promise.all(
-    priority.map(async (id) => {
-      const u = await getUserLite(id);
-      return toMember(u, id, {
-        commander: commanderIds.includes(id),
-        manager: managerIds.includes(id)
-      });
-    })
-  );
+  const maybe = await mapLimit(priority, 6, async (id) => {
+    const u = await getUserLite(id);
+    if (!u?.username) return null;
+    return toMember(u, id, {
+      commander: commanderIds.includes(id),
+      manager: managerIds.includes(id)
+    });
+  });
+  const resolved = maybe.filter((m): m is MuMember => Boolean(m));
 
   const commanders = resolved.filter((m) => m.isCommander);
   const managers = resolved.filter((m) => m.isManager && !m.isCommander);
@@ -394,17 +396,28 @@ export async function getMilitaryUnits(muIds: string[]): Promise<MilitaryUnit[]>
  * Skenira top ljestvicu tjedne stete i filtrira po drzavi.
  */
 export async function discoverCroatianMus(): Promise<{ id: string; name: string }[]> {
-  const ranking = await trpcGet<any>(
-    "ranking.getRanking",
-    { rankingType: "muWeeklyDamages", limit: 300 },
-    5 * 60_000
-  );
-  const items: any[] = Array.isArray(ranking?.items) ? ranking.items : [];
+  // Ukupna + tjedna ljestvica pokrivaju i stare i nove jedinice
+  const [total, weekly] = await Promise.all([
+    trpcGet<any>(
+      "ranking.getRanking",
+      { rankingType: "muDamages", limit: 1000 },
+      10 * 60_000
+    ).catch(() => null),
+    trpcGet<any>(
+      "ranking.getRanking",
+      { rankingType: "muWeeklyDamages", limit: 500 },
+      10 * 60_000
+    ).catch(() => null)
+  ]);
+  const items: any[] = [
+    ...(Array.isArray(total?.items) ? total.items : []),
+    ...(Array.isArray(weekly?.items) ? weekly.items : [])
+  ];
   const muIds = [...new Set(items.map((i) => String(i?.mu ?? i?._id ?? "")).filter(Boolean))];
 
   const wanted = new Set([CROATIA_COUNTRY_ID, KYRGYZSTAN_COUNTRY_ID]);
   const found: { id: string; name: string }[] = [];
-  await mapLimit(muIds, 12, async (id) => {
+  await mapLimit(muIds, 10, async (id) => {
     const mu = await getMuById(id);
     if (mu && wanted.has(String(mu.country))) {
       found.push({ id, name: mu.name ?? "Jedinica" });

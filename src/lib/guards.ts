@@ -20,14 +20,21 @@ export async function requireActive(): Promise<
   return { user };
 }
 
+// Zapovjedni lanac: admin > visoki zapovjednik > zapovjednik > vojnik
+export const COMMAND_RANKS = ["admin", "visoki", "zapovjednik"];
+
+export function isCommander(rank: string): boolean {
+  return COMMAND_RANKS.includes(rank);
+}
+
 export async function requireCommander(): Promise<
   { user: SessionUser } | { error: NextResponse }
 > {
   const res = await requireActive();
   if ("error" in res) return res;
-  if (res.user.rank !== "admin" && res.user.rank !== "zapovjednik") {
+  if (!isCommander(res.user.rank)) {
     return {
-      error: NextResponse.json({ error: "Samo zapovjednik ili admin." }, { status: 403 })
+      error: NextResponse.json({ error: "Samo zapovjednistvo." }, { status: 403 })
     };
   }
   return res;

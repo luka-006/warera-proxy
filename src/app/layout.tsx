@@ -15,7 +15,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Warera HR — Zapovjedni centar",
+  title: "HR Operativni Centar",
   description: "Nadzorna ploca i koordinacija hrvatskih igraca War Era.",
   robots: { index: false, follow: false }
 };

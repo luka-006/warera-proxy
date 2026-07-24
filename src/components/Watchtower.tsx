@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Dropdown from "@/components/Dropdown";
+import Help from "@/components/Help";
 
 interface MuContract {
   id: string;
@@ -45,6 +46,14 @@ interface Pin {
   battleId: string;
   weight: number;
 }
+interface Assignment {
+  muId: string;
+  muName: string;
+}
+interface TrackedUnit {
+  muId: string;
+  label: string | null;
+}
 
 const PRIO_COLOR: Record<string, string> = {
   HITNO: "var(--prio-hitno)",
@@ -70,16 +79,25 @@ function Ext({
   href,
   className,
   title,
-  children
+  children,
+  stop
 }: {
   href?: string;
   className?: string;
   title?: string;
   children: React.ReactNode;
+  stop?: boolean;
 }) {
   if (!href) return <span className={className}>{children}</span>;
   return (
-    <a href={href} target="_blank" rel="noreferrer" className={className} title={title}>
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={className}
+      title={title}
+      onClick={stop ? (e) => e.stopPropagation() : undefined}
+    >
       {children}
     </a>
   );
@@ -94,7 +112,7 @@ function Flag({ side }: { side: BattleSide }) {
     <span className="flag-fallback">{(side.countryCode ?? "??").slice(0, 2).toUpperCase()}</span>
   );
   return (
-    <Ext href={side.link} className="flag-link" title={side.name}>
+    <Ext href={side.link} className="flag-link" title={side.name} stop>
       {el}
     </Ext>
   );
@@ -116,24 +134,31 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
   const [battles, setBattles] = useState<Battle[]>([]);
   const [notes, setNotes] = useState<Record<string, Note[]>>({});
   const [pins, setPins] = useState<Record<string, number>>({});
+  const [assignments, setAssignments] = useState<Record<string, Assignment[]>>({});
+  const [units, setUnits] = useState<TrackedUnit[]>([]);
   const [configured, setConfigured] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [bRes, pRes] = await Promise.all([
+      const [bRes, pRes, aRes] = await Promise.all([
         fetch("/api/warera/battles"),
-        fetch("/api/pins")
+        fetch("/api/pins"),
+        fetch("/api/assignments")
       ]);
       const bData = await bRes.json();
       const pData = pRes.ok ? await pRes.json() : { pins: [] };
+      const aData = aRes.ok ? await aRes.json() : { assignments: {}, units: [] };
       setConfigured(bData.configured !== false);
       setError(bData.error ?? null);
       const list: Battle[] = bData.battles ?? [];
       setBattles(list);
+      setAssignments(aData.assignments ?? {});
+      setUnits(aData.units ?? []);
 
       const pinMap: Record<string, number> = {};
       for (const p of (pData.pins ?? []) as Pin[]) pinMap[p.battleId] = p.weight;
@@ -201,13 +226,43 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
     }
   }
 
+  async function assign(battleId: string, muId: string) {
+    const unit = units.find((u) => u.muId === muId);
+    if (!unit) return;
+    const muName = unit.label ?? "Jedinica";
+    setAssignments((prev) => {
+      const cur = prev[battleId] ?? [];
+      if (cur.some((a) => a.muId === muId)) return prev;
+      return { ...prev, [battleId]: [...cur, { muId, muName }] };
+    });
+    await fetch("/api/assignments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ battleId, muId, muName })
+    }).catch(() => {});
+  }
+
+  async function unassign(battleId: string, muId: string) {
+    setAssignments((prev) => ({
+      ...prev,
+      [battleId]: (prev[battleId] ?? []).filter((a) => a.muId !== muId)
+    }));
+    await fetch(
+      `/api/assignments?battleId=${encodeURIComponent(battleId)}&muId=${encodeURIComponent(muId)}`,
+      { method: "DELETE" }
+    ).catch(() => {});
+  }
+
   return (
     <div>
       <div className="section-head">
         <h1>Nadzorna ploca</h1>
-        <button className="btn btn-sm" onClick={() => load()}>
-          Osvjezi
-        </button>
+        <div className="head-actions">
+          <Help text="Klik na bitku otvara detaljan prikaz: steta, bounty, ugovori, dodijeljene jedinice i biljeske. Zvjezdica postavlja prioritet P1-P4." />
+          <button className="btn btn-sm" onClick={() => load()}>
+            Osvjezi
+          </button>
+        </div>
       </div>
 
       <div className="board-toolbar">
@@ -234,8 +289,14 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
             battle={b}
             notes={notes[b.id] ?? []}
             pinPrio={pins[b.id] ?? null}
+            assigned={assignments[b.id] ?? []}
+            units={units}
             canCommand={canCommand}
+            open={openId === b.id}
+            onToggle={() => setOpenId(openId === b.id ? null : b.id)}
             onSetPin={(prio) => setPin(b, prio)}
+            onAssign={(muId) => assign(b.id, muId)}
+            onUnassign={(muId) => unassign(b.id, muId)}
             onNotesChange={(next) => setNotes((prev) => ({ ...prev, [b.id]: next }))}
           />
         ))}
@@ -264,7 +325,7 @@ function PinMenu({
   }, [open]);
 
   return (
-    <div className="dd pin-dd" ref={ref}>
+    <div className="dd pin-dd" ref={ref} onClick={(e) => e.stopPropagation()}>
       <button
         className={`pin-btn ${prio ? "on" : ""}`}
         style={prio ? { color: PIN_COLOR[prio] } : undefined}
@@ -367,22 +428,87 @@ function BountyChips({ battle }: { battle: Battle }) {
   );
 }
 
+function AssignMenu({
+  units,
+  assigned,
+  onAssign
+}: {
+  units: TrackedUnit[];
+  assigned: Assignment[];
+  onAssign: (muId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const available = units.filter((u) => !assigned.some((a) => a.muId === u.muId));
+
+  return (
+    <div className="dd" ref={ref}>
+      <button type="button" className="btn btn-sm" onClick={() => setOpen((v) => !v)}>
+        + Dodijeli jedinicu
+      </button>
+      {open && (
+        <div className="dd-menu">
+          <div className="dd-title">Posalji u ovu bitku</div>
+          {available.length === 0 ? (
+            <div className="dd-empty">Sve jedinice su dodijeljene</div>
+          ) : (
+            available.map((u) => (
+              <button
+                key={u.muId}
+                className="dd-item"
+                onClick={() => {
+                  onAssign(u.muId);
+                  setOpen(false);
+                }}
+              >
+                ⚑ {u.label ?? u.muId.slice(-6)}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BattleCard({
   battle,
   notes,
   pinPrio,
+  assigned,
+  units,
   canCommand,
+  open,
+  onToggle,
   onSetPin,
+  onAssign,
+  onUnassign,
   onNotesChange
 }: {
   battle: Battle;
   notes: Note[];
   pinPrio: number | null;
+  assigned: Assignment[];
+  units: TrackedUnit[];
   canCommand: boolean;
+  open: boolean;
+  onToggle: () => void;
   onSetPin: (p: number | null) => void;
+  onAssign: (muId: string) => void;
+  onUnassign: (muId: string) => void;
   onNotesChange: (n: Note[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
   const [body, setBody] = useState("");
   const [priority, setPriority] = useState("HITNO");
   const [saving, setSaving] = useState(false);
@@ -391,6 +517,15 @@ function BattleCard({
   const def = battle.defender.damage ?? 0;
   const total = att + def;
   const attPct = total > 0 ? (att / total) * 100 : 50;
+
+  const hasBounty = Boolean(
+    battle.attacker.bountyPer1k ||
+      battle.attacker.bountyPool ||
+      battle.defender.bountyPer1k ||
+      battle.defender.bountyPool
+  );
+  const contractCount =
+    (battle.attacker.contracts?.length ?? 0) + (battle.defender.contracts?.length ?? 0);
 
   const topNotePrio = notes.reduce((acc, n) => {
     const o = ["NISKO", "NORMALNO", "VISOKO", "HITNO"];
@@ -421,7 +556,7 @@ function BattleCard({
       if (res.ok) {
         onNotesChange([data.note, ...notes]);
         setBody("");
-        setOpen(false);
+        setNoteOpen(false);
       }
     } finally {
       setSaving(false);
@@ -435,122 +570,180 @@ function BattleCard({
 
   return (
     <article
-      className={`battle ${pinPrio ? "battle-pinned" : ""}`}
+      className={`battle ${pinPrio ? "battle-pinned" : ""} ${open ? "open" : ""}`}
       style={{ borderLeftColor: border }}
     >
-      <div className="battle-simple">
-        <div className="battle-sides">
-          {canCommand ? (
-            <PinMenu prio={pinPrio} onSet={onSetPin} />
-          ) : (
-            pinPrio && (
-              <span className="pin-btn on" style={{ color: PIN_COLOR[pinPrio] }} title={`Prioritet P${pinPrio}`}>
-                ★
-              </span>
-            )
-          )}
-          {pinPrio && (
-            <span className="pin-badge" style={{ color: PIN_COLOR[pinPrio], borderColor: PIN_COLOR[pinPrio] }}>
-              P{pinPrio}
+      {/* Kompaktni red — klik otvara detalje */}
+      <div className="battle-row" onClick={onToggle} role="button" aria-expanded={open}>
+        {canCommand ? (
+          <PinMenu prio={pinPrio} onSet={onSetPin} />
+        ) : (
+          pinPrio && (
+            <span
+              className="pin-btn on"
+              style={{ color: PIN_COLOR[pinPrio] }}
+              title={`Prioritet P${pinPrio}`}
+            >
+              ★
             </span>
-          )}
+          )
+        )}
+        {pinPrio && (
+          <span
+            className="pin-badge"
+            style={{ color: PIN_COLOR[pinPrio], borderColor: PIN_COLOR[pinPrio] }}
+          >
+            P{pinPrio}
+          </span>
+        )}
 
+        <span className="battle-title">
           <Flag side={battle.attacker} />
-          <Ext href={battle.attacker.link} className="side-name">
-            {battle.attacker.name ?? "—"}
-          </Ext>
+          <span className="side-name">{battle.attacker.name ?? "—"}</span>
           <span className="vs-plain">vs</span>
-          <Ext href={battle.defender.link} className="side-name">
-            {battle.defender.name ?? "—"}
-          </Ext>
+          <span className="side-name">{battle.defender.name ?? "—"}</span>
           <Flag side={battle.defender} />
-        </div>
+        </span>
 
-        <div className="battle-right">
-          <BountyChips battle={battle} />
-          {battle.regionName && (
-            <Ext href={battle.regionLink} className="meta-chip">
-              {battle.regionName}
-            </Ext>
-          )}
-          {battle.round !== undefined && (
-            <span className="meta-chip quiet">
-              R{battle.round}
-              {battle.roundsToWin ? `/${battle.roundsToWin}` : ""}
+        <span className="row-tags">
+          {assigned.length > 0 && (
+            <span className="tag-ind units" title={assigned.map((a) => a.muName).join(", ")}>
+              ⚑ {assigned.length}
             </span>
           )}
-          <Ext href={battle.link} className="open-battle" title="Otvori bitku u War Era">
-            Otvori
-          </Ext>
-        </div>
+          {notes.length > 0 && (
+            <span className="tag-ind" title={`${notes.length} biljeski`}>
+              ✎ {notes.length}
+            </span>
+          )}
+          {hasBounty && (
+            <span className="tag-ind bounty" title="Aktivan bounty">
+              $
+            </span>
+          )}
+          {contractCount > 0 && (
+            <span className="tag-ind" title={`${contractCount} ugovora jedinica`}>
+              ⛨ {contractCount}
+            </span>
+          )}
+          <span className={`chevron ${open ? "up" : ""}`}>▾</span>
+        </span>
       </div>
 
-      <Ext href={battle.link} className="damage-wrap thin" title="Otvori bitku">
-        <div className="damage-bar">
-          <div className="att" style={{ width: `${attPct}%` }} />
-          <div className="def" style={{ width: `${100 - attPct}%` }} />
-        </div>
-      </Ext>
+      {open && (
+        <div className="battle-detail reveal">
+          <div className="damage-wrap thin">
+            <div className="damage-bar">
+              <div className="att" style={{ width: `${attPct}%` }} />
+              <div className="def" style={{ width: `${100 - attPct}%` }} />
+            </div>
+          </div>
 
-      <Contracts battle={battle} />
+          <div className="detail-meta">
+            {battle.regionName && (
+              <Ext href={battle.regionLink} className="meta-chip" stop>
+                {battle.regionName}
+              </Ext>
+            )}
+            {battle.round !== undefined && (
+              <span className="meta-chip quiet">
+                R{battle.round}
+                {battle.roundsToWin ? `/${battle.roundsToWin}` : ""}
+              </span>
+            )}
+            <BountyChips battle={battle} />
+            <Ext href={battle.link} className="open-battle" title="Otvori bitku u War Era" stop>
+              Otvori u War Era
+            </Ext>
+          </div>
 
-      {notes.length > 0 && (
-        <div className="notes">
-          {notes.map((n) => (
-            <div className="note" key={n.id}>
-              <span className="bar" style={{ background: PRIO_COLOR[n.priority] }} />
-              <div className="body">
-                <span className="prio-chip" style={{ color: PRIO_COLOR[n.priority] }}>
-                  {n.priority}
-                </span>{" "}
-                {n.body}
-                <div className="who">
-                  {n.author} · {timeAgo(n.createdAt)}
+          <Contracts battle={battle} />
+
+          {(assigned.length > 0 || canCommand) && (
+            <div className="assign-row">
+              <span className="contracts-lbl">Dodijeljene jedinice</span>
+              {assigned.map((a) => (
+                <span key={a.muId} className="assign-chip">
+                  ⚑ {a.muName}
                   {canCommand && (
-                    <button className="linkish" onClick={() => del(n.id)}>
-                      ukloni
+                    <button
+                      className="assign-x"
+                      onClick={() => onUnassign(a.muId)}
+                      title="Makni jedinicu"
+                    >
+                      ×
                     </button>
                   )}
-                </div>
-              </div>
+                </span>
+              ))}
+              {canCommand && (
+                <AssignMenu units={units} assigned={assigned} onAssign={onAssign} />
+              )}
+              {canCommand && (
+                <Help text="Oznaci koje jedinice idu u ovu bitku. Vojnici na ploci vide oznaku ⚑ uz bitku." />
+              )}
             </div>
-          ))}
+          )}
+
+          {notes.length > 0 && (
+            <div className="notes">
+              {notes.map((n) => (
+                <div className="note" key={n.id}>
+                  <span className="bar" style={{ background: PRIO_COLOR[n.priority] }} />
+                  <div className="body">
+                    <span className="prio-chip" style={{ color: PRIO_COLOR[n.priority] }}>
+                      {n.priority}
+                    </span>{" "}
+                    {n.body}
+                    <div className="who">
+                      {n.author} · {timeAgo(n.createdAt)}
+                      {canCommand && (
+                        <button className="linkish" onClick={() => del(n.id)}>
+                          ukloni
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {canCommand &&
+            (noteOpen ? (
+              <form onSubmit={submit} className="note-form">
+                <textarea
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder="Kratka uputa za ovu bitku..."
+                  autoFocus
+                  maxLength={500}
+                />
+                <div className="note-form-row">
+                  <Dropdown
+                    value={priority}
+                    onChange={setPriority}
+                    options={[
+                      { value: "HITNO", label: "HITNO", color: PRIO_COLOR.HITNO },
+                      { value: "VISOKO", label: "VISOKO", color: PRIO_COLOR.VISOKO },
+                      { value: "NORMALNO", label: "NORMALNO", color: PRIO_COLOR.NORMALNO }
+                    ]}
+                  />
+                  <button className="btn btn-primary btn-sm" disabled={saving}>
+                    Objavi
+                  </button>
+                  <button type="button" className="btn btn-sm" onClick={() => setNoteOpen(false)}>
+                    Odustani
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button className="add-note" onClick={() => setNoteOpen(true)}>
+                <span className="plus">+</span> Biljeska
+              </button>
+            ))}
         </div>
       )}
-
-      {canCommand &&
-        (open ? (
-          <form onSubmit={submit} className="note-form">
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Kratka uputa za ovu bitku..."
-              autoFocus
-              maxLength={500}
-            />
-            <div className="note-form-row">
-              <Dropdown
-                value={priority}
-                onChange={setPriority}
-                options={[
-                  { value: "HITNO", label: "HITNO", color: PRIO_COLOR.HITNO },
-                  { value: "VISOKO", label: "VISOKO", color: PRIO_COLOR.VISOKO },
-                  { value: "NORMALNO", label: "NORMALNO", color: PRIO_COLOR.NORMALNO }
-                ]}
-              />
-              <button className="btn btn-primary btn-sm" disabled={saving}>
-                Objavi
-              </button>
-              <button type="button" className="btn btn-sm" onClick={() => setOpen(false)}>
-                Odustani
-              </button>
-            </div>
-          </form>
-        ) : (
-          <button className="add-note" onClick={() => setOpen(true)}>
-            <span className="plus">+</span> Biljeska
-          </button>
-        ))}
     </article>
   );
 }

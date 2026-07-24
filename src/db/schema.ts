@@ -62,6 +62,7 @@ export const messages = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     body: text("body").notNull(),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`)
@@ -121,6 +122,10 @@ export const plans = sqliteTable(
     // povezana aktivna bitka (direktan link)
     battleId: text("battle_id"),
     battleLabel: text("battle_label"),
+    // lanac planova: ovaj plan je nastavak na navedeni
+    followsPlanId: text("follows_plan_id"),
+    // JSON niz preporucene opreme (kljucevi iz kataloga)
+    gear: text("gear"),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -166,6 +171,26 @@ export const trackedMus = sqliteTable("tracked_mus", {
     .notNull()
     .default(sql`(unixepoch())`)
 });
+
+// Dodijeljene jedinice na bitkama (zapovjednik salje jedinice u napad)
+export const battleAssignments = sqliteTable(
+  "battle_assignments",
+  {
+    id: text("id").primaryKey(),
+    battleId: text("battle_id").notNull(),
+    muId: text("mu_id").notNull(),
+    muName: text("mu_name").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`)
+  },
+  (t) => ({
+    battleIdx: index("battle_assignments_battle_idx").on(t.battleId)
+  })
+);
 
 export type User = typeof users.$inferSelect;
 export type Channel = typeof channels.$inferSelect;

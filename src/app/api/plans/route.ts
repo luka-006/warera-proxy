@@ -5,10 +5,11 @@ import { planReactions, plans, users } from "@/db/schema";
 import { requireActive, requireCommander } from "@/lib/guards";
 import { newId } from "@/lib/ids";
 import { battleLink } from "@/lib/warera";
+import { GEAR_KEYS } from "@/lib/gear";
 
 export const runtime = "nodejs";
 
-const TYPES = ["zapovijed", "plan", "program"];
+const TYPES = ["zapovijed", "plan"];
 const PRIORITIES = ["HITNO", "VISOKO", "NORMALNO", "NISKO"];
 
 export interface PlanPhase {
@@ -22,6 +23,16 @@ function parsePhases(raw: string | null): PlanPhase[] {
   try {
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseGear(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((k) => GEAR_KEYS.includes(k)) : [];
   } catch {
     return [];
   }
@@ -55,6 +66,8 @@ export async function GET() {
       phases: plans.phases,
       battleId: plans.battleId,
       battleLabel: plans.battleLabel,
+      followsPlanId: plans.followsPlanId,
+      gear: plans.gear,
       createdAt: plans.createdAt,
       updatedAt: plans.updatedAt,
       author: users.callsign,
@@ -92,6 +105,7 @@ export async function GET() {
   const out = rows.map((r) => ({
     ...r,
     phases: parsePhases(r.phases),
+    gear: parseGear(r.gear),
     battleLink: r.battleId ? battleLink(r.battleId) : null,
     reactions: byPlan.get(r.id)?.counts ?? {},
     myReactions: byPlan.get(r.id)?.mine ?? []
@@ -112,6 +126,8 @@ export async function POST(req: NextRequest) {
     phases?: unknown;
     battleId?: string;
     battleLabel?: string;
+    followsPlanId?: string;
+    gear?: unknown;
   };
   try {
     body = await req.json();
@@ -141,8 +157,29 @@ export async function POST(req: NextRequest) {
   const battleId = (body.battleId ?? "").trim().slice(0, 40) || null;
   const battleLabel = (body.battleLabel ?? "").trim().slice(0, 120) || null;
 
+  // Lanac planova: "ovaj plan je nastavak na..."
+  let followsPlanId = (body.followsPlanId ?? "").trim() || null;
+  if (followsPlanId) {
+    const prev = await db
+      .select({ id: plans.id })
+      .from(plans)
+      .where(eq(plans.id, followsPlanId))
+      .limit(1);
+    if (!prev.length) followsPlanId = null;
+  }
+
+  const gear = Array.isArray(body.gear)
+    ? (body.gear as unknown[]).map(String).filter((k) => GEAR_KEYS.includes(k)).slice(0, 9)
+    : [];
+
   const id = newId();
   const now = new Date();
+
+  // Postoji samo jedna danasnja zapovijed — stare postaju obicni planovi
+  if (type === "zapovijed") {
+    await db.update(plans).set({ type: "plan" }).where(eq(plans.type, "zapovijed"));
+  }
+
   await db.insert(plans).values({
     id,
     title,
@@ -152,6 +189,8 @@ export async function POST(req: NextRequest) {
     phases: phases.length ? JSON.stringify(phases) : null,
     battleId,
     battleLabel,
+    followsPlanId,
+    gear: gear.length ? JSON.stringify(gear) : null,
     userId: auth.user.id,
     createdAt: now,
     updatedAt: now
@@ -167,6 +206,8 @@ export async function POST(req: NextRequest) {
       phases,
       battleId,
       battleLabel,
+      followsPlanId,
+      gear,
       battleLink: battleId ? battleLink(battleId) : null,
       reactions: {},
       myReactions: [],

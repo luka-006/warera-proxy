@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Dropdown from "@/components/Dropdown";
 
 interface UserRow {
   id: string;
@@ -152,16 +153,19 @@ export default function AdminClient() {
                     <span className={statusClass(u.status)}>{u.status}</span>
                   </td>
                   <td>
-                    <select
-                      value={u.rank}
-                      onChange={(e) => userAction(u.id, "rank", e.target.value)}
-                      style={{ width: "auto" }}
-                      disabled={busy}
-                    >
-                      <option value="admin">admin</option>
-                      <option value="zapovjednik">zapovjednik</option>
-                      <option value="vojnik">vojnik</option>
-                    </select>
+                    {u.rank === "admin" ? (
+                      <span className="rank-tag">Admin</span>
+                    ) : (
+                      <Dropdown
+                        value={u.rank}
+                        onChange={(v) => userAction(u.id, "rank", v)}
+                        options={[
+                          { value: "visoki", label: "Visoki zapovjednik" },
+                          { value: "zapovjednik", label: "Zapovjednik" },
+                          { value: "vojnik", label: "Vojnik" }
+                        ]}
+                      />
+                    )}
                   </td>
                   <td className="muted">{dt(u.lastLoginAt)}</td>
                   <td>

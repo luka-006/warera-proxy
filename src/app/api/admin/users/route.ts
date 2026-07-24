@@ -6,7 +6,8 @@ import { requireAdmin } from "@/lib/guards";
 
 export const runtime = "nodejs";
 
-const RANKS = ["admin", "zapovjednik", "vojnik"];
+// Admin rang se ne dodjeljuje — admin je samo vlasnik sustava
+const RANKS = ["visoki", "zapovjednik", "vojnik"];
 const STATUSES = ["ceka", "aktivan", "blokiran"];
 
 export async function GET() {
