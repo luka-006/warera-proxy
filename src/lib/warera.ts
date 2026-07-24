@@ -1,11 +1,5 @@
 // Server-side War Era proxy. API kljuc nikad ne izlazi na klijenta.
-// War Era koristi tRPC preko HTTP GET: /trpc/<namespace>.<method>?input=<JSON>
-//
-// Stvarni endpointi (community docs):
-//   battle.getBattles?input={"isActive":true}  -> { items: [...] }
-//   country.getAllCountries                     -> [ { _id, name, code } ]
-//   region.getRegionsObject                     -> { <id>: { name, countryCode } }
-// U bitkama su country/region samo ID-evi pa ih razrjesavamo u imena i zastave.
+// Deep linkovi (app.warera.io): /battle/<id> /country/<id> /region/<id>
 
 const BASE = process.env.WARERA_API_BASE ?? "https://api2.warera.io/trpc";
 const APP_BASE = process.env.WARERA_APP_BASE ?? "https://app.warera.io";
@@ -14,9 +8,11 @@ const API_KEY = process.env.WARERA_API_KEY;
 export interface BattleSide {
   countryId?: string;
   name?: string;
-  countryCode?: string; // ISO2 za zastavu (npr. "hr")
+  countryCode?: string;
   damage?: number;
   points?: number;
+  wonRounds?: number;
+  link?: string; // app.warera.io/country/<id>
 }
 
 export interface Battle {
@@ -24,12 +20,16 @@ export interface Battle {
   label: string;
   attacker: BattleSide;
   defender: BattleSide;
+  regionId?: string;
   regionName?: string;
+  regionLink?: string;
+  warId?: string;
+  warLink?: string;
   round?: number;
   roundsToWin?: number;
   totalDamage?: number;
   type?: string;
-  link: string;
+  link: string; // app.warera.io/battle/<id>
   updatedAt: string;
 }
 
@@ -71,6 +71,15 @@ async function trpcGet<T>(path: string, input: unknown, ttlMs: number): Promise<
 
 export function battleLink(battleId: string): string {
   return `${APP_BASE}/battle/${battleId}`;
+}
+export function countryLink(countryId: string): string {
+  return `${APP_BASE}/country/${countryId}`;
+}
+export function regionLink(regionId: string): string {
+  return `${APP_BASE}/region/${regionId}`;
+}
+export function warLink(warId: string): string {
+  return `${APP_BASE}/war/${warId}`;
 }
 
 export function isConfigured(): boolean {
@@ -123,8 +132,6 @@ export async function getActiveBattles(): Promise<Battle[]> {
       : [];
 
   const battles = items.map((b) => normalizeBattle(b, countries, regions));
-
-  // Sortiraj po ukupnoj steti u trenutnoj rundi (najzesce bitke gore)
   battles.sort((a, b) => (b.totalDamage ?? 0) - (a.totalDamage ?? 0));
   return battles;
 }
@@ -134,13 +141,16 @@ function side(
   round: any,
   countries: Map<string, CountryInfo>
 ): BattleSide {
-  const info = raw?.country ? countries.get(raw.country) : undefined;
+  const countryId = raw?.country as string | undefined;
+  const info = countryId ? countries.get(countryId) : undefined;
   return {
-    countryId: raw?.country,
+    countryId,
     name: info?.name,
     countryCode: info?.code,
     damage: num(round?.damages, raw?.damages),
-    points: num(round?.points)
+    points: num(round?.points),
+    wonRounds: num(raw?.wonRoundsCount),
+    link: countryId ? countryLink(countryId) : undefined
   };
 }
 
@@ -154,28 +164,28 @@ function normalizeBattle(
   const attacker = side(b?.attacker, cr?.attacker, countries);
   const defender = side(b?.defender, cr?.defender, countries);
 
-  // Bitka se vodi za obrambenu regiju
-  const regionName =
-    (b?.defender?.region && regions.get(b.defender.region)) ||
-    (b?.attacker?.region && regions.get(b.attacker.region)) ||
-    undefined;
+  const regionId: string | undefined = b?.defender?.region || b?.attacker?.region || undefined;
+  const regionName = regionId ? regions.get(regionId) : undefined;
+  const warId: string | undefined = b?.war || undefined;
 
   const label =
     [attacker.name, defender.name].filter(Boolean).join(" vs ") ||
     regionName ||
     `Bitka ${id.slice(-5)}`;
 
-  const totalDamage = (attacker.damage ?? 0) + (defender.damage ?? 0);
-
   return {
     id,
     label,
     attacker,
     defender,
+    regionId,
     regionName,
+    regionLink: regionId ? regionLink(regionId) : undefined,
+    warId,
+    warLink: warId ? warLink(warId) : undefined,
     round: num(cr?.number),
     roundsToWin: num(b?.roundsToWin),
-    totalDamage,
+    totalDamage: (attacker.damage ?? 0) + (defender.damage ?? 0),
     type: b?.type,
     link: battleLink(id),
     updatedAt: new Date().toISOString()

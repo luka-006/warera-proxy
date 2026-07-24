@@ -345,25 +345,105 @@ textarea {
   margin-top: 8px;
 }
 
+/* Board toolbar */
+.board-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.board-search {
+  flex: 1;
+  min-width: 180px;
+  max-width: 360px;
+  background: #0f120e;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  padding: 8px 12px;
+  font-family: var(--sans);
+  font-size: 13px;
+}
+.board-search:focus {
+  outline: none;
+  border-color: var(--olive-bright);
+}
+
 /* Battle list */
+.battle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .battle {
   border: 1px solid var(--line);
   border-left: 3px solid var(--line-strong);
-  margin-bottom: 10px;
   background: var(--panel);
+  transition: border-color 0.12s, background 0.12s;
 }
-.battle-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 14px;
-  align-items: center;
-  padding: 12px 16px;
+.battle:hover {
+  border-color: var(--line-strong);
+  background: #181d17;
 }
-.battle-main {
+.battle-top {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px 8px;
+  flex-wrap: wrap;
+}
+.battle-sides {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+}
+.side-block {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.side-role {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  border: 1px solid var(--line);
+  padding: 2px 5px;
+}
+.side-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.side-name:hover {
+  color: var(--olive-bright);
+  text-decoration: none;
+}
+.side-stats {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+.side-stats .dot {
+  margin: 0 3px;
+}
+.flag-link {
+  display: inline-flex;
+  line-height: 0;
+}
+.flag-link:hover .flag,
+.flag-link:hover .flag-fallback {
+  border-color: var(--olive-bright);
 }
 .flag {
   width: 26px;
@@ -384,30 +464,81 @@ textarea {
   color: var(--ink-faint);
   flex: none;
 }
-.battle-title {
-  font-weight: 600;
-  font-size: 14px;
-}
-.vs {
+.vs-link {
   color: var(--ink-faint);
   font-family: var(--mono);
   font-size: 12px;
-  padding: 0 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.vs-link:hover {
+  color: var(--olive-bright);
+  border-color: var(--olive);
+  text-decoration: none;
+}
+.battle-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.battle-actions a.btn {
+  text-decoration: none;
+}
+.battle-mid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 14px 12px;
+  flex-wrap: wrap;
 }
 .battle-meta {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 6px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-dim);
 }
 .battle-meta .k {
   color: var(--ink-faint);
+  margin-right: 4px;
 }
-
+.meta-chip {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  background: #121612;
+}
+.meta-chip:hover {
+  border-color: var(--olive);
+  color: var(--ink);
+  text-decoration: none;
+}
+.damage-wrap {
+  display: block;
+  min-width: 180px;
+  flex: 0 1 220px;
+  text-decoration: none;
+}
+.damage-wrap:hover .damage-bar {
+  border-color: var(--olive-bright);
+}
+.damage-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-bottom: 3px;
+}
 .damage-bar {
-  width: 160px;
-  height: 6px;
+  width: 100%;
+  height: 7px;
   background: #0f120e;
   border: 1px solid var(--line-strong);
   display: flex;
@@ -417,6 +548,9 @@ textarea {
 }
 .damage-bar .def {
   background: var(--olive);
+}
+.note-battle-ref {
+  text-decoration: none;
 }
 
 /* Notes under battle */
@@ -679,12 +813,17 @@ table.grid tr:hover td {
     flex-basis: 100%;
     overflow-x: auto;
   }
-  .battle-row {
-    grid-template-columns: 1fr;
-    gap: 8px;
+  .battle-top,
+  .battle-mid {
+    flex-direction: column;
+    align-items: stretch;
   }
-  .damage-bar {
+  .side-name {
+    max-width: 120px;
+  }
+  .damage-wrap {
     width: 100%;
+    flex: none;
   }
   .chat-layout {
     grid-template-columns: 1fr;
