@@ -47,6 +47,22 @@ async function main() {
     console.log("[seed] Kreiran kanal #zapovjednistvo");
   }
 
+  // Primjer HR MU (ZDRUG) — admin moze dodati jos u Sucelju
+  const zdrug = "69cc40fa8c83b81ca7c8fb41";
+  const existingMu = await db
+    .select({ muId: schema.trackedMus.muId })
+    .from(schema.trackedMus)
+    .where(eq(schema.trackedMus.muId, zdrug))
+    .limit(1);
+  if (!existingMu[0]) {
+    await db.insert(schema.trackedMus).values({
+      muId: zdrug,
+      label: "ZDRUG",
+      addedBy: "seed"
+    });
+    console.log("[seed] Dodana jedinica ZDRUG");
+  }
+
   // Bootstrap admin
   const callsign = normalizeCallsign(process.env.BOOTSTRAP_ADMIN_CALLSIGN ?? "zapovjednik");
   const existingAdmin = await db

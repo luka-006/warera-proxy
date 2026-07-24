@@ -4,6 +4,7 @@ const nextConfig = {
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**.warera.io" },
+      { protocol: "https", hostname: "media.warera.io" },
       { protocol: "https", hostname: "flagcdn.com" }
     ]
   }

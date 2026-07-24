@@ -7,25 +7,11 @@ interface UserRow {
   callsign: string;
   rank: string;
   status: string;
-  canChat: boolean;
   hasPassword: boolean;
-  createdAt: string | number | Date;
   lastLoginAt: string | number | Date | null;
 }
-interface RequestRow {
-  id: string;
-  callsign: string;
-  rank: string;
-  createdAt: string | number | Date;
-}
-interface ChannelRow {
-  id: string;
-  slug: string;
-  name: string;
-  description?: string | null;
-}
 
-type Tab = "korisnici" | "zahtjevi" | "kanali";
+type Tab = "korisnici" | "jedinice";
 
 function statusClass(s: string) {
   return `status-pill status-${s}`;
@@ -38,29 +24,30 @@ function dt(d: string | number | Date | null) {
 export default function AdminClient() {
   const [tab, setTab] = useState<Tab>("korisnici");
   const [users, setUsers] = useState<UserRow[]>([]);
-  const [requests, setRequests] = useState<RequestRow[]>([]);
-  const [channels, setChannels] = useState<ChannelRow[]>([]);
-  const [newChannel, setNewChannel] = useState("");
+  const [muInput, setMuInput] = useState("");
+  const [tracked, setTracked] = useState<{ muId: string; label?: string | null }[]>([]);
   const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     const r = await fetch("/api/admin/users");
     if (r.ok) setUsers((await r.json()).users ?? []);
   }, []);
-  const loadRequests = useCallback(async () => {
-    const r = await fetch("/api/admin/requests");
-    if (r.ok) setRequests((await r.json()).requests ?? []);
-  }, []);
-  const loadChannels = useCallback(async () => {
-    const r = await fetch("/api/admin/channels");
-    if (r.ok) setChannels((await r.json()).channels ?? []);
+
+  const loadMus = useCallback(async () => {
+    // tracked list via units endpoint + POST/DELETE; we store ids in DB
+    // use a lightweight list by fetching units (which also returns empty if none)
+    const r = await fetch("/api/warera/units");
+    if (r.ok) {
+      const data = await r.json();
+      setTracked((data.units ?? []).map((u: { id: string; name: string }) => ({ muId: u.id, label: u.name })));
+    }
   }, []);
 
   useEffect(() => {
     loadUsers();
-    loadRequests();
-    loadChannels();
-  }, [loadUsers, loadRequests, loadChannels]);
+    loadMus();
+  }, [loadUsers, loadMus]);
 
   async function userAction(userId: string, action: string, value: unknown) {
     setBusy(true);
@@ -77,56 +64,47 @@ export default function AdminClient() {
   }
 
   async function deleteUser(userId: string) {
-    if (!confirm("Obrisati korisnika? Ova radnja je trajna.")) return;
+    if (!confirm("Obrisati korisnika?")) return;
     await fetch(`/api/admin/users?userId=${encodeURIComponent(userId)}`, { method: "DELETE" });
     await loadUsers();
   }
 
-  async function resolveRequest(requestId: string, approve: boolean) {
-    await fetch("/api/admin/requests", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId, approve })
-    });
-    await Promise.all([loadRequests(), loadUsers()]);
-  }
-
-  async function addChannel(e: React.FormEvent) {
+  async function addMu(e: React.FormEvent) {
     e.preventDefault();
-    if (!newChannel.trim()) return;
-    const r = await fetch("/api/admin/channels", {
+    setMsg(null);
+    const r = await fetch("/api/warera/units", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: newChannel })
+      body: JSON.stringify({ muIdOrUrl: muInput })
     });
-    if (r.ok) {
-      setNewChannel("");
-      await loadChannels();
+    const data = await r.json();
+    if (!r.ok) {
+      setMsg(data.error ?? "Greska");
+      return;
     }
+    setMuInput("");
+    setMsg(`Dodano: ${data.muId}`);
+    await loadMus();
   }
 
-  async function deleteChannel(id: string) {
-    if (!confirm("Obrisati kanal i sve poruke u njemu?")) return;
-    await fetch(`/api/admin/channels?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    await loadChannels();
+  async function removeMu(muId: string) {
+    await fetch(`/api/warera/units?muId=${encodeURIComponent(muId)}`, { method: "DELETE" });
+    await loadMus();
   }
 
   return (
     <div>
       <div className="section-head">
         <h1>Zapovjedno sucelje</h1>
-        <span className="meta">{users.length} racuna · {requests.length} zahtjeva</span>
+        <span className="meta">{users.length} racuna</span>
       </div>
 
       <div className="tabs">
         <button className={tab === "korisnici" ? "active" : ""} onClick={() => setTab("korisnici")}>
           Korisnici
         </button>
-        <button className={tab === "zahtjevi" ? "active" : ""} onClick={() => setTab("zahtjevi")}>
-          Zahtjevi ({requests.length})
-        </button>
-        <button className={tab === "kanali" ? "active" : ""} onClick={() => setTab("kanali")}>
-          Kanali
+        <button className={tab === "jedinice" ? "active" : ""} onClick={() => setTab("jedinice")}>
+          Vojne jedinice
         </button>
       </div>
 
@@ -138,8 +116,7 @@ export default function AdminClient() {
                 <th>Pozivni znak</th>
                 <th>Status</th>
                 <th>Rang</th>
-                <th>Chat</th>
-                <th>Zadnja prijava</th>
+                <th>Prijava</th>
                 <th>Akcije</th>
               </tr>
             </thead>
@@ -164,15 +141,6 @@ export default function AdminClient() {
                       <option value="zapovjednik">zapovjednik</option>
                       <option value="vojnik">vojnik</option>
                     </select>
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={u.canChat || u.rank !== "vojnik"}
-                      disabled={u.rank !== "vojnik" || busy}
-                      onChange={(e) => userAction(u.id, "chat", e.target.checked)}
-                      style={{ width: "auto" }}
-                    />
                   </td>
                   <td className="muted">{dt(u.lastLoginAt)}</td>
                   <td>
@@ -213,83 +181,44 @@ export default function AdminClient() {
         </div>
       )}
 
-      {tab === "zahtjevi" && (
-        <div className="panel">
-          {requests.length === 0 ? (
-            <div className="empty">Nema zahtjeva za pisanje</div>
-          ) : (
-            <table className="grid">
-              <thead>
-                <tr>
-                  <th>Pozivni znak</th>
-                  <th>Rang</th>
-                  <th>Podneseno</th>
-                  <th>Akcije</th>
-                </tr>
-              </thead>
-              <tbody>
-                {requests.map((r) => (
-                  <tr key={r.id}>
-                    <td className="mono">{r.callsign}</td>
-                    <td>{r.rank}</td>
-                    <td className="muted">{dt(r.createdAt)}</td>
-                    <td>
-                      <div className="row-actions">
-                        <button
-                          className="btn btn-sm btn-primary"
-                          onClick={() => resolveRequest(r.id, true)}
-                        >
-                          Odobri pisanje
-                        </button>
-                        <button
-                          className="btn btn-sm"
-                          onClick={() => resolveRequest(r.id, false)}
-                        >
-                          Odbij
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {tab === "kanali" && (
+      {tab === "jedinice" && (
         <div className="panel panel-pad">
-          <form onSubmit={addChannel} style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Dodaj hrvatske vojne jedinice (MU) iz War Ere — ID ili link tipa{" "}
+            <span className="mono">app.warera.io/mu/...</span>
+          </p>
+          {msg && <div className="notice">{msg}</div>}
+          <form onSubmit={addMu} style={{ display: "flex", gap: 10, marginBottom: 18 }}>
             <input
-              value={newChannel}
-              onChange={(e) => setNewChannel(e.target.value)}
-              placeholder="Naziv novog kanala (npr. Jedinica Alfa)"
+              value={muInput}
+              onChange={(e) => setMuInput(e.target.value)}
+              placeholder="MU ID ili link"
             />
-            <button className="btn btn-primary">Dodaj kanal</button>
+            <button className="btn btn-primary">Dodaj</button>
           </form>
           <table className="grid">
             <thead>
               <tr>
-                <th>Kanal</th>
                 <th>Naziv</th>
-                <th>Akcije</th>
+                <th>ID</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {channels.map((c) => (
-                <tr key={c.id}>
-                  <td className="mono">#{c.slug}</td>
-                  <td>{c.name}</td>
+              {tracked.map((t) => (
+                <tr key={t.muId}>
+                  <td>{t.label ?? "—"}</td>
+                  <td className="mono muted">{t.muId}</td>
                   <td>
-                    <button className="btn btn-sm btn-danger" onClick={() => deleteChannel(c.id)}>
-                      Obrisi
+                    <button className="btn btn-sm btn-danger" onClick={() => removeMu(t.muId)}>
+                      Ukloni
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {channels.length === 0 && <div className="empty">Nema kanala</div>}
+          {tracked.length === 0 && <div className="empty">Nema pracenih jedinica</div>}
         </div>
       )}
     </div>

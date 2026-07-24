@@ -8,7 +8,6 @@ interface BattleSide {
   countryCode?: string;
   damage?: number;
   points?: number;
-  wonRounds?: number;
   link?: string;
 }
 interface Battle {
@@ -19,12 +18,9 @@ interface Battle {
   regionId?: string;
   regionName?: string;
   regionLink?: string;
-  warId?: string;
-  warLink?: string;
   round?: number;
   roundsToWin?: number;
   totalDamage?: number;
-  type?: string;
   link: string;
 }
 interface Note {
@@ -34,7 +30,10 @@ interface Note {
   priority: string;
   createdAt: string | number | Date;
   author: string;
-  authorRank: string;
+}
+interface Pin {
+  battleId: string;
+  weight: number;
 }
 
 const PRIO_COLOR: Record<string, string> = {
@@ -44,12 +43,12 @@ const PRIO_COLOR: Record<string, string> = {
   NISKO: "var(--prio-nisko)"
 };
 
-function flagUrl(code?: string): string | null {
+function flagUrl(code?: string) {
   if (!code || code.length !== 2) return null;
   return `https://flagcdn.com/w40/${code.toLowerCase()}.png`;
 }
 
-function ExtLink({
+function Ext({
   href,
   className,
   title,
@@ -70,81 +69,69 @@ function ExtLink({
 
 function Flag({ side }: { side: BattleSide }) {
   const url = flagUrl(side.countryCode);
-  const inner = url ? (
+  const el = url ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img className="flag" src={url} alt={side.name ?? ""} />
   ) : (
-    <span className="flag-fallback">
-      {(side.countryCode ?? "??").slice(0, 2).toUpperCase()}
-    </span>
+    <span className="flag-fallback">{(side.countryCode ?? "??").slice(0, 2).toUpperCase()}</span>
   );
   return (
-    <ExtLink href={side.link} className="flag-link" title={side.name}>
-      {inner}
-    </ExtLink>
+    <Ext href={side.link} className="flag-link" title={side.name}>
+      {el}
+    </Ext>
   );
 }
 
-function fmt(n?: number): string {
-  if (n === undefined || n === null) return "—";
-  return new Intl.NumberFormat("hr-HR").format(Math.round(n));
-}
-
-function timeAgo(d: string | number | Date): string {
-  const t = new Date(d).getTime();
-  const s = Math.floor((Date.now() - t) / 1000);
+function timeAgo(d: string | number | Date) {
+  const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
   if (s < 60) return "upravo";
   if (s < 3600) return `prije ${Math.floor(s / 60)} min`;
   if (s < 86400) return `prije ${Math.floor(s / 3600)} h`;
   return new Date(d).toLocaleDateString("hr-HR");
 }
 
-type Filter = "sve" | "hitno" | "biljeske";
-
 export default function Watchtower({ canCommand }: { canCommand: boolean }) {
   const [battles, setBattles] = useState<Battle[]>([]);
   const [notes, setNotes] = useState<Record<string, Note[]>>({});
+  const [pins, setPins] = useState<Record<string, number>>({});
   const [configured, setConfigured] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<Filter>("sve");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const loadNotes = useCallback(async (ids: string[]) => {
-    if (!ids.length) {
-      setNotes({});
-      return;
-    }
-    try {
-      const res = await fetch(`/api/notes?battleIds=${encodeURIComponent(ids.join(","))}`);
-      if (res.ok) {
-        const data = await res.json();
-        setNotes(data.notes ?? {});
-      }
-    } catch {
-      /* tiho */
-    }
-  }, []);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/warera/battles");
-      const data = await res.json();
-      setConfigured(data.configured !== false);
-      if (data.error) setError(data.error);
-      else setError(null);
-      const list: Battle[] = data.battles ?? [];
+      const [bRes, pRes] = await Promise.all([
+        fetch("/api/warera/battles"),
+        fetch("/api/pins")
+      ]);
+      const bData = await bRes.json();
+      const pData = pRes.ok ? await pRes.json() : { pins: [] };
+      setConfigured(bData.configured !== false);
+      setError(bData.error ?? null);
+      const list: Battle[] = bData.battles ?? [];
       setBattles(list);
-      setFetchedAt(data.fetchedAt ?? new Date().toISOString());
-      await loadNotes(list.map((b) => b.id).filter(Boolean));
+
+      const pinMap: Record<string, number> = {};
+      for (const p of (pData.pins ?? []) as Pin[]) pinMap[p.battleId] = p.weight;
+      setPins(pinMap);
+
+      if (list.length) {
+        const nRes = await fetch(
+          `/api/notes?battleIds=${encodeURIComponent(list.map((b) => b.id).join(","))}`
+        );
+        if (nRes.ok) {
+          const nData = await nRes.json();
+          setNotes(nData.notes ?? {});
+        }
+      }
     } catch {
-      setError("Greska u dohvatu podataka.");
+      setError("Greska u dohvatu.");
     } finally {
       setLoading(false);
     }
-  }, [loadNotes]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -154,53 +141,52 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
     };
   }, [load]);
 
-  function onNoteAdded(battleId: string, note: Note) {
-    setNotes((prev) => ({ ...prev, [battleId]: [note, ...(prev[battleId] ?? [])] }));
-  }
-  function onNoteDeleted(battleId: string, noteId: string) {
-    setNotes((prev) => ({
-      ...prev,
-      [battleId]: (prev[battleId] ?? []).filter((n) => n.id !== noteId)
-    }));
-  }
-
   const visible = useMemo(() => {
     const query = q.trim().toLowerCase();
-    return battles.filter((b) => {
-      const bn = notes[b.id] ?? [];
-      if (filter === "biljeske" && bn.length === 0) return false;
-      if (filter === "hitno" && !bn.some((n) => n.priority === "HITNO" || n.priority === "VISOKO")) {
-        return false;
-      }
+    const list = battles.filter((b) => {
       if (!query) return true;
-      const hay = [
-        b.label,
-        b.attacker.name,
-        b.defender.name,
-        b.regionName,
-        b.type,
-        ...bn.map((n) => n.body)
-      ]
+      const hay = [b.label, b.attacker.name, b.defender.name, b.regionName, ...(notes[b.id] ?? []).map((n) => n.body)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return hay.includes(query);
     });
-  }, [battles, notes, q, filter]);
+    // Prioritetne (pin) prvo, zatim po steti
+    return [...list].sort((a, b) => {
+      const pa = pins[a.id] ?? 0;
+      const pb = pins[b.id] ?? 0;
+      if (pb !== pa) return pb - pa;
+      return (b.totalDamage ?? 0) - (a.totalDamage ?? 0);
+    });
+  }, [battles, notes, pins, q]);
 
-  const withNotes = Object.values(notes).filter((n) => n.length > 0).length;
+  async function togglePin(battle: Battle) {
+    if (!canCommand) return;
+    const pinned = Boolean(pins[battle.id]);
+    if (pinned) {
+      await fetch(`/api/pins?battleId=${encodeURIComponent(battle.id)}`, { method: "DELETE" });
+      setPins((prev) => {
+        const next = { ...prev };
+        delete next[battle.id];
+        return next;
+      });
+    } else {
+      await fetch("/api/pins", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ battleId: battle.id, battleLabel: battle.label, weight: 3 })
+      });
+      setPins((prev) => ({ ...prev, [battle.id]: 3 }));
+    }
+  }
 
   return (
     <div>
       <div className="section-head">
         <h1>Nadzorna ploca</h1>
-        <span className="meta">
-          {loading
-            ? "ucitavanje..."
-            : `${visible.length}/${battles.length} bitaka · ${withNotes} s biljeskom · ${
-                fetchedAt ? new Date(fetchedAt).toLocaleTimeString("hr-HR") : ""
-              }`}
-        </span>
+        <button className="btn btn-sm" onClick={() => load()}>
+          Osvjezi
+        </button>
       </div>
 
       <div className="board-toolbar">
@@ -208,73 +194,31 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
           className="board-search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Pretrazi drzavu, regiju, biljesku..."
+          placeholder="Pretrazi bitku, drzavu, regiju..."
         />
-        <div className="tabs" style={{ marginBottom: 0 }}>
-          {(
-            [
-              ["sve", "Sve"],
-              ["hitno", "Hitno"],
-              ["biljeske", "S biljeskom"]
-            ] as [Filter, string][]
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              className={filter === id ? "active" : ""}
-              onClick={() => setFilter(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <button className="btn btn-sm" onClick={() => load()} title="Osvjezi">
-          Osvjezi
-        </button>
       </div>
 
       {!configured && (
-        <div className="notice">
-          War Era API kljuc nije postavljen. Postavi <span className="mono">WARERA_API_KEY</span>{" "}
-          u okruzenju za prikaz uzivo. Biljeske zapovjednika i dalje rade.
-        </div>
+        <div className="notice">War Era API nije spojen. Biljeske i pinovi i dalje rade.</div>
       )}
       {error && <div className="notice err">{error}</div>}
+      {loading && <div className="empty">Ucitavanje...</div>}
 
-      {!loading && visible.length === 0 ? (
-        <div className="empty">
-          {configured ? "Nema bitaka za ovaj filter" : "Cekanje na konfiguraciju API-ja"}
-        </div>
-      ) : (
-        <div className="battle-list">
-          {visible.map((b) => (
-            <BattleCard
-              key={b.id}
-              battle={b}
-              notes={notes[b.id] ?? []}
-              canCommand={canCommand}
-              onAdded={(n) => onNoteAdded(b.id, n)}
-              onDeleted={(id) => onNoteDeleted(b.id, id)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+      {!loading && visible.length === 0 && <div className="empty">Nema aktivnih bitaka</div>}
 
-function SideBlock({ side, role }: { side: BattleSide; role: "N" | "B" }) {
-  return (
-    <div className="side-block">
-      <span className="side-role">{role}</span>
-      <Flag side={side} />
-      <ExtLink href={side.link} className="side-name" title={`Otvori ${side.name} u War Era`}>
-        {side.name ?? "—"}
-      </ExtLink>
-      <span className="side-stats">
-        <span title="Bodovi runde">{side.points ?? 0}b</span>
-        <span className="dot">·</span>
-        <span title="Osvojene runde">{side.wonRounds ?? 0}r</span>
-      </span>
+      <div className="battle-list">
+        {visible.map((b) => (
+          <BattleCard
+            key={b.id}
+            battle={b}
+            notes={notes[b.id] ?? []}
+            pinned={Boolean(pins[b.id])}
+            canCommand={canCommand}
+            onTogglePin={() => togglePin(b)}
+            onNotesChange={(next) => setNotes((prev) => ({ ...prev, [b.id]: next }))}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -282,31 +226,37 @@ function SideBlock({ side, role }: { side: BattleSide; role: "N" | "B" }) {
 function BattleCard({
   battle,
   notes,
+  pinned,
   canCommand,
-  onAdded,
-  onDeleted
+  onTogglePin,
+  onNotesChange
 }: {
   battle: Battle;
   notes: Note[];
+  pinned: boolean;
   canCommand: boolean;
-  onAdded: (n: Note) => void;
-  onDeleted: (id: string) => void;
+  onTogglePin: () => void;
+  onNotesChange: (n: Note[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState("");
-  const [priority, setPriority] = useState("NORMALNO");
+  const [priority, setPriority] = useState("HITNO");
   const [saving, setSaving] = useState(false);
 
-  const attDmg = battle.attacker.damage ?? 0;
-  const defDmg = battle.defender.damage ?? 0;
-  const total = attDmg + defDmg;
-  const attPct = total > 0 ? (attDmg / total) * 100 : 50;
+  const att = battle.attacker.damage ?? 0;
+  const def = battle.defender.damage ?? 0;
+  const total = att + def;
+  const attPct = total > 0 ? (att / total) * 100 : 50;
 
-  const topPrio = notes.reduce<string>((acc, n) => {
-    const order = ["NISKO", "NORMALNO", "VISOKO", "HITNO"];
-    return order.indexOf(n.priority) > order.indexOf(acc) ? n.priority : acc;
+  const topNotePrio = notes.reduce((acc, n) => {
+    const o = ["NISKO", "NORMALNO", "VISOKO", "HITNO"];
+    return o.indexOf(n.priority) > o.indexOf(acc) ? n.priority : acc;
   }, "");
-  const borderColor = topPrio ? PRIO_COLOR[topPrio] : "var(--line-strong)";
+  const border = pinned
+    ? "var(--prio-hitno)"
+    : topNotePrio
+      ? PRIO_COLOR[topNotePrio]
+      : "var(--line-strong)";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -325,9 +275,8 @@ function BattleCard({
       });
       const data = await res.json();
       if (res.ok) {
-        onAdded(data.note);
+        onNotesChange([data.note, ...notes]);
         setBody("");
-        setPriority("NORMALNO");
         setOpen(false);
       }
     } finally {
@@ -337,113 +286,74 @@ function BattleCard({
 
   async function del(id: string) {
     const res = await fetch(`/api/notes?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    if (res.ok) onDeleted(id);
+    if (res.ok) onNotesChange(notes.filter((n) => n.id !== id));
   }
 
   return (
-    <div className="battle" style={{ borderLeftColor: borderColor }}>
-      <div className="battle-top">
+    <article className={`battle ${pinned ? "battle-pinned" : ""}`} style={{ borderLeftColor: border }}>
+      <div className="battle-simple">
         <div className="battle-sides">
-          <SideBlock side={battle.attacker} role="N" />
-          <ExtLink href={battle.link} className="vs-link" title="Otvori bitku">
-            vs
-          </ExtLink>
-          <SideBlock side={battle.defender} role="B" />
+          {canCommand && (
+            <button
+              className={`pin-btn ${pinned ? "on" : ""}`}
+              onClick={onTogglePin}
+              title={pinned ? "Makni prioritet" : "Oznaci kao prioritetnu bitku"}
+            >
+              {pinned ? "★" : "☆"}
+            </button>
+          )}
+          {!canCommand && pinned && <span className="pin-btn on" title="Prioritet">★</span>}
+
+          <Flag side={battle.attacker} />
+          <Ext href={battle.attacker.link} className="side-name">
+            {battle.attacker.name ?? "—"}
+          </Ext>
+          <span className="vs-plain">vs</span>
+          <Ext href={battle.defender.link} className="side-name">
+            {battle.defender.name ?? "—"}
+          </Ext>
+          <Flag side={battle.defender} />
         </div>
 
-        <div className="battle-actions">
-          <ExtLink href={battle.link} className="btn btn-primary btn-sm" title="Otvori bitku u War Era">
-            Bitka ↗
-          </ExtLink>
-          {battle.regionLink && (
-            <ExtLink href={battle.regionLink} className="btn btn-sm" title="Otvori regiju">
-              Regija ↗
-            </ExtLink>
-          )}
-          {battle.warLink && (
-            <ExtLink href={battle.warLink} className="btn btn-sm" title="Otvori rat">
-              Rat ↗
-            </ExtLink>
-          )}
-        </div>
-      </div>
-
-      <div className="battle-mid">
-        <div className="battle-meta">
+        <div className="battle-right">
           {battle.regionName && (
-            <ExtLink href={battle.regionLink} className="meta-chip" title="Regija u War Era">
-              <span className="k">regija</span> {battle.regionName}
-            </ExtLink>
+            <Ext href={battle.regionLink} className="meta-chip">
+              {battle.regionName}
+            </Ext>
           )}
           {battle.round !== undefined && (
-            <ExtLink href={battle.link} className="meta-chip" title="Bitka">
-              <span className="k">runda</span> {battle.round}
+            <span className="meta-chip quiet">
+              R{battle.round}
               {battle.roundsToWin ? `/${battle.roundsToWin}` : ""}
-            </ExtLink>
+            </span>
           )}
-          <ExtLink href={battle.link} className="meta-chip" title="Bodovi runde">
-            <span className="k">bodovi</span> {battle.attacker.points ?? 0}:
-            {battle.defender.points ?? 0}
-          </ExtLink>
-          <ExtLink href={battle.link} className="meta-chip" title="Ukupna steta runde">
-            <span className="k">steta</span> {fmt(total)}
-          </ExtLink>
-          {battle.type && (
-            <ExtLink href={battle.link} className="meta-chip">
-              <span className="k">tip</span> {battle.type}
-            </ExtLink>
-          )}
-          <ExtLink href={battle.link} className="meta-chip mono" title="Kopiraj / otvori ID bitke">
-            <span className="k">id</span> {battle.id.slice(-6)}
-          </ExtLink>
+          <Ext href={battle.link} className="open-battle" title="Otvori bitku u War Era">
+            Otvori
+          </Ext>
         </div>
-
-        <ExtLink href={battle.link} className="damage-wrap" title="Otvori bitku">
-          <div className="damage-labels">
-            <span>{fmt(attDmg)}</span>
-            <span>{fmt(defDmg)}</span>
-          </div>
-          <div className="damage-bar">
-            <div className="att" style={{ width: `${attPct}%` }} />
-            <div className="def" style={{ width: `${100 - attPct}%` }} />
-          </div>
-        </ExtLink>
       </div>
+
+      <Ext href={battle.link} className="damage-wrap thin" title="Otvori bitku">
+        <div className="damage-bar">
+          <div className="att" style={{ width: `${attPct}%` }} />
+          <div className="def" style={{ width: `${100 - attPct}%` }} />
+        </div>
+      </Ext>
 
       {notes.length > 0 && (
         <div className="notes">
           {notes.map((n) => (
             <div className="note" key={n.id}>
-              <span
-                className="bar"
-                style={{ background: PRIO_COLOR[n.priority] ?? "var(--line-strong)" }}
-              />
+              <span className="bar" style={{ background: PRIO_COLOR[n.priority] }} />
               <div className="body">
-                <ExtLink href={battle.link} className="note-battle-ref" title="Otvori bitku">
-                  <span
-                    className="prio-chip"
-                    style={{ color: PRIO_COLOR[n.priority] ?? "var(--ink-faint)", marginRight: 8 }}
-                  >
-                    {n.priority}
-                  </span>
-                </ExtLink>
+                <span className="prio-chip" style={{ color: PRIO_COLOR[n.priority] }}>
+                  {n.priority}
+                </span>{" "}
                 {n.body}
                 <div className="who">
                   {n.author} · {timeAgo(n.createdAt)}
                   {canCommand && (
-                    <button
-                      onClick={() => del(n.id)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "var(--danger-bright)",
-                        cursor: "pointer",
-                        marginLeft: 10,
-                        fontSize: 10,
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase"
-                      }}
-                    >
+                    <button className="linkish" onClick={() => del(n.id)}>
                       ukloni
                     </button>
                   )}
@@ -456,49 +366,33 @@ function BattleCard({
 
       {canCommand &&
         (open ? (
-          <form onSubmit={submit} style={{ padding: "10px 16px 14px" }}>
+          <form onSubmit={submit} className="note-form">
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder="Uputa / zapovijed za ovu bitku (npr. svi na obranu, ne ulaziti...)"
+              placeholder="Kratka uputa za ovu bitku..."
               autoFocus
               maxLength={500}
             />
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                marginTop: 8,
-                alignItems: "center",
-                flexWrap: "wrap"
-              }}
-            >
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                style={{ width: "auto" }}
-              >
+            <div className="note-form-row">
+              <select value={priority} onChange={(e) => setPriority(e.target.value)}>
                 <option value="HITNO">HITNO</option>
                 <option value="VISOKO">VISOKO</option>
                 <option value="NORMALNO">NORMALNO</option>
-                <option value="NISKO">NISKO</option>
               </select>
               <button className="btn btn-primary btn-sm" disabled={saving}>
-                {saving ? "..." : "Objavi biljesku"}
+                Objavi
               </button>
               <button type="button" className="btn btn-sm" onClick={() => setOpen(false)}>
                 Odustani
               </button>
-              <ExtLink href={battle.link} className="btn btn-sm">
-                Pregledaj bitku ↗
-              </ExtLink>
             </div>
           </form>
         ) : (
           <button className="add-note" onClick={() => setOpen(true)}>
-            <span className="plus">+</span> Dodaj biljesku zapovjednika
+            <span className="plus">+</span> Biljeska
           </button>
         ))}
-    </div>
+    </article>
   );
 }

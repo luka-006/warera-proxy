@@ -1,12 +1,12 @@
 import AppShell from "@/components/AppShell";
-import ChatClient from "@/components/ChatClient";
+import UnitsClient from "@/components/UnitsClient";
 
 export const dynamic = "force-dynamic";
 
-export default function ChatPage() {
+export default function JedinicePage() {
   return (
     <AppShell>
-      <ChatClient />
+      <UnitsClient />
     </AppShell>
   );
 }

@@ -81,10 +81,19 @@ export function regionLink(regionId: string): string {
 export function warLink(warId: string): string {
   return `${APP_BASE}/war/${warId}`;
 }
+export function muLink(muId: string): string {
+  return `${APP_BASE}/mu/${muId}`;
+}
+export function userLink(userId: string): string {
+  return `${APP_BASE}/user/${userId}`;
+}
 
 export function isConfigured(): boolean {
   return Boolean(API_KEY);
 }
+
+export const CROATIA_COUNTRY_ID =
+  process.env.WARERA_CROATIA_COUNTRY_ID ?? "6813b6d446e731854c7ac7bc";
 
 interface CountryInfo {
   name: string;
@@ -190,4 +199,121 @@ function normalizeBattle(
     link: battleLink(id),
     updatedAt: new Date().toISOString()
   };
+}
+
+// --- Military units ---
+
+export interface MuMember {
+  id: string;
+  username: string;
+  avatarUrl?: string;
+  link: string;
+  isCommander: boolean;
+  isManager: boolean;
+  militaryRank?: number;
+  level?: number;
+}
+
+export interface MilitaryUnit {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  link: string;
+  countryId?: string;
+  regionId?: string;
+  memberCount: number;
+  commanders: MuMember[];
+  managers: MuMember[];
+  soldiers: MuMember[];
+  weeklyDamage?: number;
+  weeklyRank?: number;
+}
+
+export async function getUserLite(userId: string): Promise<any | null> {
+  try {
+    return await trpcGet<any>("user.getUserLite", { userId }, 3 * 60_000);
+  } catch {
+    return null;
+  }
+}
+
+export async function getMuById(muId: string): Promise<any | null> {
+  try {
+    return await trpcGet<any>("mu.getById", { muId }, 60_000);
+  } catch {
+    return null;
+  }
+}
+
+function toMember(
+  u: any,
+  id: string,
+  flags: { commander: boolean; manager: boolean }
+): MuMember {
+  return {
+    id,
+    username: u?.username ?? id.slice(-6),
+    avatarUrl: u?.avatarUrl,
+    link: userLink(id),
+    isCommander: flags.commander,
+    isManager: flags.manager,
+    militaryRank: u?.militaryRank,
+    level: u?.leveling?.level
+  };
+}
+
+export async function getMilitaryUnit(muId: string): Promise<MilitaryUnit | null> {
+  const raw = await getMuById(muId);
+  if (!raw) return null;
+
+  const commanderIds: string[] = raw?.roles?.commanders ?? [];
+  const managerIds: string[] = raw?.roles?.managers ?? [];
+  const memberIds: string[] = raw?.members ?? [];
+
+  // Resolve up to 40 members for display (commanders first)
+  const priority = [
+    ...new Set([...commanderIds, ...managerIds, ...memberIds])
+  ].slice(0, 40);
+
+  const resolved = await Promise.all(
+    priority.map(async (id) => {
+      const u = await getUserLite(id);
+      return toMember(u, id, {
+        commander: commanderIds.includes(id),
+        manager: managerIds.includes(id)
+      });
+    })
+  );
+
+  const commanders = resolved.filter((m) => m.isCommander);
+  const managers = resolved.filter((m) => m.isManager && !m.isCommander);
+  const soldiers = resolved.filter((m) => !m.isCommander && !m.isManager);
+
+  return {
+    id: raw._id,
+    name: raw.name ?? "Jedinica",
+    avatarUrl: raw.avatarUrl,
+    link: muLink(raw._id),
+    countryId: raw.country,
+    regionId: raw.region,
+    memberCount: memberIds.length,
+    commanders,
+    managers,
+    soldiers,
+    weeklyDamage: raw?.rankings?.muWeeklyDamages?.value,
+    weeklyRank: raw?.rankings?.muWeeklyDamages?.rank
+  };
+}
+
+export async function getMilitaryUnits(muIds: string[]): Promise<MilitaryUnit[]> {
+  const units = await Promise.all(muIds.map((id) => getMilitaryUnit(id)));
+  return units.filter((u): u is MilitaryUnit => Boolean(u));
+}
+
+/** Izvuci MU id iz URL-a ili cistog id-a */
+export function parseMuId(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const m = t.match(/\/mu\/([a-f0-9]{20,})/i) || t.match(/^([a-f0-9]{20,})$/i);
+  return m ? m[1] : null;
 }

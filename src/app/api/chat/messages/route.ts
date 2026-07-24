@@ -47,14 +47,7 @@ export async function POST(req: NextRequest) {
   if ("error" in auth) return auth.error;
 
   const user = auth.user;
-  const canWrite = user.rank === "admin" || user.rank === "zapovjednik" || user.canChat;
-  if (!canWrite) {
-    return NextResponse.json(
-      { error: "Nemas dopustenje za pisanje. Zatrazi ga od zapovjednika." },
-      { status: 403 }
-    );
-  }
-
+  // Svi aktivni igraci mogu pisati u zajednicki chat
   const rl = rateLimit(`chat:${user.id}`, 20, 30_000);
   if (!rl.ok) {
     return NextResponse.json({ error: "Uspori malo." }, { status: 429 });

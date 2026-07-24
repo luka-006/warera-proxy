@@ -20,8 +20,10 @@ export default function Nav({
   const router = useRouter();
 
   const links = [
-    { href: "/", label: "Nadzorna ploca" },
-    { href: "/chat", label: "Komunikacije" }
+    { href: "/", label: "Ploca" },
+    { href: "/plan", label: "Plan" },
+    { href: "/jedinice", label: "Jedinice" },
+    { href: "/chat", label: "Chat" }
   ];
   if (rank === "admin") {
     links.push({ href: "/admin", label: "Sucelje" });
