@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Dropdown from "@/components/Dropdown";
 import Help from "@/components/Help";
 import { GEAR_CATALOG, gearIconUrl, gearLabel } from "@/lib/gear";
-import { avatarStyle, initials } from "@/lib/notify";
+import { avatarStyle, initials } from "@/lib/avatar";
 
 interface Phase {
   title: string;

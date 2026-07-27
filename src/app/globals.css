@@ -3,8 +3,8 @@
   --bg-panel: #14181463;
   --panel: #161a15;
   --panel-2: #1c211a;
-  --line: #2b322a;
-  --line-strong: #3a4238;
+  --line: #262b24;
+  --line-strong: #32382f;
   --ink: #d8ddd2;
   --ink-dim: #9aa294;
   --ink-faint: #6b7367;
@@ -32,6 +32,8 @@ html,
 body {
   padding: 0;
   margin: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -60,6 +62,17 @@ h3,
 .plan-body,
 .note .body {
   overflow-wrap: anywhere;
+}
+
+.app-shell,
+.content,
+.panel,
+.battle,
+.plan-card,
+.unit-card,
+.chat-single {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 a {
@@ -132,6 +145,13 @@ h3 {
 .brand-main {
   display: inline-flex;
   align-items: baseline;
+  min-width: 0;
+}
+.brand-short {
+  display: none;
+}
+.brand-full {
+  display: inline;
 }
 
 .nav {
@@ -2004,41 +2024,102 @@ table.grid tr:hover td {
 }
 
 @media (max-width: 720px) {
+  html,
+  body {
+    overflow-x: hidden;
+    width: 100%;
+  }
+
   .topbar {
     min-height: 0;
     flex-wrap: wrap;
-    padding: 10px 14px;
-    gap: 10px;
+    padding: 8px 10px;
+    gap: 8px;
+    width: 100%;
+    max-width: 100vw;
   }
   .brand {
-    font-size: 14px;
-    letter-spacing: 0.1em;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    max-width: calc(100% - 100px);
+    overflow: hidden;
+  }
+  .brand-main {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .brand-full {
+    display: none;
+  }
+  .brand-short {
+    display: inline;
   }
   .brand .sub {
     display: none;
   }
   .topbar-right {
     margin-left: auto;
+    gap: 6px;
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .topbar-right .mono {
+    max-width: 72px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rank-tag {
+    display: none;
   }
   .nav {
     order: 3;
     flex-basis: 100%;
+    width: 100%;
+    max-width: 100%;
     overflow-x: auto;
+    overflow-y: hidden;
+    gap: 4px;
+    -webkit-overflow-scrolling: touch;
   }
   .nav a {
-    padding: 8px 14px;
-    font-size: 12px;
+    padding: 7px 12px;
+    font-size: 11px;
+    flex: none;
   }
   .content {
-    padding: 16px 12px 60px;
+    padding: 14px 10px 48px;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+  .section-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .section-head h1 {
+    font-size: 14px;
+  }
+  .head-actions {
+    width: 100%;
+  }
+
+  .battle,
+  .plan-card,
+  .unit-card,
+  .panel {
+    border-color: var(--line);
   }
   .battle-row {
     flex-wrap: wrap;
     row-gap: 6px;
+    padding: 10px 10px;
+    gap: 6px;
   }
   .battle-title {
     flex-basis: 100%;
     order: 3;
+    gap: 6px;
   }
   .row-tags {
     margin-left: auto;
@@ -2046,15 +2127,25 @@ table.grid tr:hover td {
   .side-name {
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 34vw;
+    max-width: 28vw;
     font-size: 13px;
   }
-  .detail-meta {
+  .detail-meta,
+  .assign-row,
+  .contracts {
     gap: 6px;
+    padding-left: 10px;
+    padding-right: 10px;
   }
+  .open-battle {
+    width: 100%;
+    text-align: center;
+  }
+
   .chat-single {
-    height: calc(100dvh - 210px);
-    min-height: 380px;
+    height: calc(100dvh - 220px);
+    min-height: 320px;
+    width: 100%;
   }
   .chat-input {
     flex-wrap: wrap;
@@ -2064,14 +2155,35 @@ table.grid tr:hover td {
     flex-basis: 100%;
     order: -1;
   }
+  .cmd-banner {
+    gap: 6px;
+  }
+  .cmd-title {
+    white-space: normal;
+  }
+
   .form-row .field {
     min-width: 100%;
   }
   .dd-btn {
-    min-width: 110px;
+    min-width: 0;
+    width: 100%;
+  }
+  .dd-menu {
+    max-width: min(92vw, 320px);
+    left: 0;
+    right: auto;
+  }
+  .dd-menu.right,
+  .notif-menu {
+    left: auto;
+    right: 0;
+    min-width: 0;
+    width: min(92vw, 300px);
+    max-width: min(92vw, 300px);
   }
   .contract-name {
-    max-width: 90px;
+    max-width: 80px;
   }
   .gear-chip .gear-name {
     display: none;
@@ -2081,13 +2193,109 @@ table.grid tr:hover td {
     gap: 8px;
     align-items: flex-start;
   }
-  .help-pop {
-    width: 200px;
+  .plan-links {
+    gap: 6px;
   }
-  .phase-edit-top input {
-    min-width: 100%;
+  .chain-chip,
+  .plan-battle {
+    max-width: 100%;
+    white-space: normal;
+  }
+  .help-pop {
+    width: min(200px, 70vw);
+    right: 0;
+    left: auto;
+  }
+  .phase-edit-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .phase-edit-top input,
+  .phase-edit-top input.phase-when {
+    min-width: 0;
+    width: 100%;
+    flex: none;
   }
   .unit-head {
     align-items: flex-start;
+    flex-direction: column;
+  }
+  .unit-actions {
+    width: 100%;
+  }
+  .unit-actions .btn {
+    flex: 1;
+  }
+
+  /* Admin: nema horizontal scroll tablice — kartice */
+  .table-scroll {
+    overflow-x: hidden;
+  }
+  .table-scroll table.grid {
+    min-width: 0;
+    width: 100%;
+  }
+  .table-scroll thead {
+    display: none;
+  }
+  .table-scroll tr {
+    display: block;
+    border-bottom: 1px solid var(--line);
+    padding: 10px 8px;
+  }
+  .table-scroll td {
+    display: block;
+    border: none;
+    padding: 4px 0;
+    width: 100% !important;
+  }
+  .row-actions {
+    max-width: 100%;
+  }
+  .row-actions .btn {
+    flex: 1 1 auto;
+  }
+  .invite-form {
+    flex-direction: column;
+  }
+  .invite-form input,
+  .invite-form .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .health-pills {
+    gap: 6px;
+  }
+  .health-pill {
+    flex: 1 1 40%;
+    text-align: center;
+  }
+  .help-bar {
+    flex-direction: column;
+  }
+  .help-bar input,
+  .help-bar .btn {
+    width: 100%;
+  }
+  .status-row {
+    flex-wrap: wrap;
+  }
+  .bounty-pop {
+    right: 0;
+    left: auto;
+    min-width: 0;
+    width: min(220px, 80vw);
+  }
+  .tabs button {
+    padding: 10px 14px;
+    font-size: 12px;
+  }
+  .board-search {
+    max-width: 100%;
+    width: 100%;
+  }
+  .board-toolbar {
+    width: 100%;
   }
 }

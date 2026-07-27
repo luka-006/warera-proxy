@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Help from "@/components/Help";
 import { RANK_SHORT } from "@/lib/ranks";
-import { avatarStyle, initials } from "@/lib/notify";
+import { avatarStyle, initials } from "@/lib/avatar";
 
 interface Msg {
   id: string;

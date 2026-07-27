@@ -106,7 +106,9 @@ export default function Nav({
       <Link href="/" className="brand" style={{ textDecoration: "none" }}>
         <span className="dot" />
         <span className="brand-main">
-          HR OPERATIVNI CENTAR<span className="sub">HROC</span>
+          <span className="brand-full">HR OPERATIVNI CENTAR</span>
+          <span className="brand-short">HR OPS</span>
+          <span className="sub">HROC</span>
         </span>
       </Link>
       <nav className="nav">
