@@ -202,10 +202,10 @@ h3 {
 @keyframes pageIn {
   0% {
     opacity: 0;
-    transform: translateY(10px);
-    clip-path: inset(0 0 30% 0);
+    transform: translateY(14px);
+    clip-path: inset(0 0 40% 0);
   }
-  60% {
+  55% {
     clip-path: inset(0 0 0 0);
   }
   100% {
@@ -214,7 +214,24 @@ h3 {
   }
 }
 .page-anim {
-  animation: pageIn 0.4s cubic-bezier(0.2, 0.7, 0.3, 1);
+  animation: pageIn 0.55s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+@keyframes expandIn {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+    transform: translateY(0);
+  }
+}
+.expand-panel,
+.battle-detail {
+  animation: expandIn 0.35s ease-out;
 }
 
 @keyframes reveal {
@@ -1727,6 +1744,263 @@ table.grid tr:hover td {
 .unit-name {
   display: flex;
   align-items: center;
+}
+
+/* Avatar krugovi */
+.avatar-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex: none;
+}
+.avatar-circle.sm {
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
+}
+
+/* Chat battle chip */
+.battle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 4px 2px 0;
+  padding: 4px 10px;
+  border: 1px solid var(--olive);
+  background: rgba(111, 122, 68, 0.14);
+  color: var(--olive-bright);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-decoration: none;
+  vertical-align: middle;
+}
+.battle-chip:hover {
+  background: rgba(111, 122, 68, 0.28);
+  text-decoration: none;
+}
+
+/* Notifikacije */
+.notif-bell {
+  position: relative;
+  background: none;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-dim);
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.notif-bell.has {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.notif-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 16px;
+  text-align: center;
+}
+.notif-menu {
+  min-width: 280px;
+  max-width: 340px;
+  right: 0;
+  left: auto;
+}
+.notif-item {
+  flex-direction: column;
+  align-items: flex-start;
+  white-space: normal;
+  gap: 2px;
+}
+.notif-item.unread {
+  background: rgba(111, 122, 68, 0.08);
+  border-left-color: var(--olive-bright);
+}
+.notif-title {
+  font-size: 12px;
+}
+
+/* Bounty popover */
+.bounty-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.bounty-wrap .tag-ind {
+  cursor: pointer;
+  background: none;
+  font: inherit;
+}
+.bounty-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 200px;
+  background: #12160f;
+  border: 1px solid var(--amber);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+  padding: 6px 0 8px;
+  display: flex;
+  flex-direction: column;
+}
+.bounty-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.bounty-line b {
+  color: var(--amber);
+  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Status page */
+.status-mine {
+  margin-bottom: 16px;
+}
+.health-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 14px;
+}
+.health-pill {
+  background: #121612;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.health-pill.on {
+  background: rgba(111, 122, 68, 0.12);
+}
+.help-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.help-bar input {
+  flex: 1;
+  min-width: 160px;
+}
+.help-requests {
+  border: 1px solid var(--danger);
+  background: rgba(181, 72, 47, 0.08);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.help-req {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-bottom: 1px dotted var(--line);
+}
+.help-req:last-child {
+  border-bottom: none;
+}
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.status-info {
+  flex: 1;
+  min-width: 0;
+}
+.status-name {
+  font-weight: 600;
+}
+.status-name .rk {
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.status-help {
+  font-size: 12px;
+  color: var(--danger-bright);
+  margin-top: 2px;
+}
+.health-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid;
+  padding: 3px 8px;
+  flex: none;
+}
+
+/* Admin table overflow */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.table-scroll table.grid {
+  min-width: 640px;
+}
+.row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 280px;
+}
+.invite-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.invite-form input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.plan-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.msg .head {
+  gap: 8px;
 }
 
 @media (max-width: 720px) {

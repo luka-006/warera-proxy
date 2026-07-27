@@ -5,6 +5,7 @@ import Link from "next/link";
 
 export default function RegistracijaPage() {
   const [callsign, setCallsign] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ callsign: string; phrase: string } | null>(null);
@@ -18,7 +19,7 @@ export default function RegistracijaPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ callsign })
+        body: JSON.stringify({ callsign, inviteCode })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -46,9 +47,9 @@ export default function RegistracijaPage() {
       <div className="auth-card">
         <div className="brand">
           <span className="dot" />
-          WARERA<span className="sub">HR OPS</span>
+          HR OPS<span className="sub">HROC</span>
         </div>
-        <div className="auth-title">Registracija u postrojbu</div>
+        <div className="auth-title">Registracija</div>
 
         {!result ? (
           <>
@@ -64,13 +65,22 @@ export default function RegistracijaPage() {
                   autoComplete="off"
                 />
               </label>
+              <label className="field">
+                <span className="lbl">Jednokratni kod (Discord)</span>
+                <input
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  placeholder="HR-XXXX-YYYY"
+                  autoComplete="off"
+                  className="mono"
+                />
+              </label>
               <button className="btn btn-primary" style={{ width: "100%" }} disabled={loading}>
                 {loading ? "Slanje..." : "Zatrazi pristup"}
               </button>
             </form>
             <p className="muted mt">
-              Nakon registracije dobit ces jednokratnu zapovjednu frazu. Racun
-              mora odobriti administrator prije prve prijave.
+              Kod ti salje admin osobno na Discord. Svaki kod radi samo jednom.
             </p>
             <p className="center mt-sm">
               <Link href="/prijava">Vec imas pristup? Prijava</Link>

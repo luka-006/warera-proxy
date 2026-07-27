@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Help from "@/components/Help";
 import { RANK_SHORT } from "@/lib/ranks";
+import { avatarStyle, initials } from "@/lib/notify";
 
 interface Msg {
   id: string;
@@ -26,21 +27,53 @@ interface BattleOpt {
   link: string;
 }
 
-// Poruke se linkificiraju (linkovi na bitke i sl. postaju klikabilni)
-function Linkify({ text }: { text: string }) {
-  const parts = text.split(/(https?:\/\/\S+)/g);
-  return (
-    <>
-      {parts.map((p, i) =>
-        /^https?:\/\//.test(p) ? (
-          <a key={i} href={p} target="_blank" rel="noreferrer">
-            {p.replace(/^https?:\/\/(www\.)?/, "").slice(0, 60)}
+const BATTLE_RE = /⟦BATTLE\|([^|]+)\|([^|]+)\|([^\]]+)⟧/g;
+
+function MessageBody({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  const re = new RegExp(BATTLE_RE.source, "g");
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(<span key={`t${last}`}>{text.slice(last, m.index)}</span>);
+    const [, , label, url] = m;
+    parts.push(
+      <a key={`b${m.index}`} href={url} target="_blank" rel="noreferrer" className="battle-chip">
+        ⚔ {label}
+      </a>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) {
+    // obicni URL-ovi (stare poruke) pretvori u chip ako je warera battle
+    const rest = text.slice(last);
+    const urlParts = rest.split(/(https?:\/\/\S+)/g);
+    urlParts.forEach((p, i) => {
+      if (/^https?:\/\/app\.warera\.io\/battle\//.test(p)) {
+        parts.push(
+          <a key={`u${i}`} href={p} target="_blank" rel="noreferrer" className="battle-chip">
+            ⚔ Bitka
           </a>
-        ) : (
-          <span key={i}>{p}</span>
-        )
-      )}
-    </>
+        );
+      } else if (/^https?:\/\//.test(p)) {
+        parts.push(
+          <a key={`u${i}`} href={p} target="_blank" rel="noreferrer">
+            {p.replace(/^https?:\/\/(www\.)?/, "").slice(0, 48)}
+          </a>
+        );
+      } else {
+        parts.push(<span key={`u${i}`}>{p}</span>);
+      }
+    });
+  }
+  return <>{parts}</>;
+}
+
+function AuthorAvatar({ name }: { name: string }) {
+  return (
+    <span className="avatar-circle sm" style={avatarStyle(name)} title={name}>
+      {initials(name)}
+    </span>
   );
 }
 
@@ -53,6 +86,7 @@ export default function ChatClient() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const lastAt = useRef<string | null>(null);
+  const sendingLock = useRef(false);
   const scroller = useRef<HTMLDivElement | null>(null);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
   const battleMenuRef = useRef<HTMLDivElement | null>(null);
@@ -64,11 +98,10 @@ export default function ChatClient() {
         const ch = (d.channels ?? [])[0];
         if (ch) setChannelId(ch.id);
       });
-    // Danasnja zapovijed — prikvacena na vrhu kanala
     fetch("/api/plans")
       .then((r) => r.json())
       .then((d) => {
-        const z = (d.plans ?? []).find((p: any) => p.type === "zapovijed");
+        const z = (d.plans ?? []).find((p: { type: string }) => p.type === "zapovijed");
         if (z)
           setZapovijed({
             id: z.id,
@@ -91,18 +124,30 @@ export default function ChatClient() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [battleMenuOpen]);
 
-  const fetchMessages = useCallback(async (id: string, incremental: boolean) => {
-    const url = new URL("/api/chat/messages", window.location.origin);
-    url.searchParams.set("channelId", id);
-    if (incremental && lastAt.current) url.searchParams.set("after", lastAt.current);
-    const res = await fetch(url.toString());
-    if (!res.ok) return;
-    const data = await res.json();
-    const incoming: Msg[] = data.messages ?? [];
-    if (!incoming.length) return;
-    lastAt.current = new Date(incoming[incoming.length - 1].createdAt).toISOString();
-    setMessages((prev) => (incremental ? [...prev, ...incoming] : incoming));
+  const mergeMessages = useCallback((incoming: Msg[], incremental: boolean) => {
+    setMessages((prev) => {
+      if (!incremental) return incoming;
+      const ids = new Set(prev.map((m) => m.id));
+      const fresh = incoming.filter((m) => !ids.has(m.id));
+      return fresh.length ? [...prev, ...fresh] : prev;
+    });
   }, []);
+
+  const fetchMessages = useCallback(
+    async (id: string, incremental: boolean) => {
+      const url = new URL("/api/chat/messages", window.location.origin);
+      url.searchParams.set("channelId", id);
+      if (incremental && lastAt.current) url.searchParams.set("after", lastAt.current);
+      const res = await fetch(url.toString());
+      if (!res.ok) return;
+      const data = await res.json();
+      const incoming: Msg[] = data.messages ?? [];
+      if (!incoming.length) return;
+      lastAt.current = new Date(incoming[incoming.length - 1].createdAt).toISOString();
+      mergeMessages(incoming, incremental);
+    },
+    [mergeMessages]
+  );
 
   useEffect(() => {
     if (!channelId) return;
@@ -122,19 +167,26 @@ export default function ChatClient() {
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
-    if (!text.trim() || !channelId) return;
+    if (!text.trim() || !channelId || sendingLock.current) return;
+    sendingLock.current = true;
     setSending(true);
+    const payload = text;
+    setText("");
     try {
       const res = await fetch("/api/chat/messages", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ channelId, body: text })
+        body: JSON.stringify({ channelId, body: payload })
       });
-      if (res.ok) {
-        setText("");
-        await fetchMessages(channelId, true);
+      const data = await res.json();
+      if (res.ok && data.message) {
+        mergeMessages([data.message], true);
+        lastAt.current = new Date(data.message.createdAt).toISOString();
+      } else {
+        setText(payload);
       }
     } finally {
+      sendingLock.current = false;
       setSending(false);
     }
   }
@@ -157,7 +209,11 @@ export default function ChatClient() {
       if (r?.ok) {
         const d = await r.json();
         setBattles(
-          (d.battles ?? []).map((b: any) => ({ id: b.id, label: b.label, link: b.link }))
+          (d.battles ?? []).map((b: BattleOpt) => ({
+            id: b.id,
+            label: b.label,
+            link: b.link
+          }))
         );
       }
     }
@@ -170,14 +226,14 @@ export default function ChatClient() {
       <div className="section-head">
         <h1>Zapovjedni kanal</h1>
         <div className="head-actions">
-          <Help text="Interni kanal za planiranje — samo zapovjednistvo. Poruku mozes prikvaciti (pin) da ostane na vrhu. Gumb 'Bitka' ubacuje direktan link aktivne bitke." />
+          <Help text="Interni kanal zapovjednistva. Pin drzi poruku na vrhu. Gumb Bitka ubacuje chip s direktnim linkom — ne sirovi URL." />
           <span className="meta">interno planiranje</span>
         </div>
       </div>
 
       <div className="chat-single">
         {zapovijed && (
-          <a className="cmd-banner" href="/plan" title="Otvori plan i program">
+          <a className="cmd-banner" href="/plan" title="Otvori plan">
             <span className="cmd-tag">DANASNJA ZAPOVIJED</span>
             <span className="cmd-title">{zapovijed.title}</span>
             {zapovijed.battleLink && (
@@ -201,7 +257,7 @@ export default function ChatClient() {
               <div className="pinned-msg" key={`pin-${m.id}`}>
                 <span className="pin-ico">📌</span>
                 <span className="pinned-body">
-                  <b>{m.author}:</b> <Linkify text={m.body} />
+                  <b>{m.author}:</b> <MessageBody text={m.body} />
                 </span>
                 <button className="assign-x" onClick={() => togglePin(m)} title="Otkvaci">
                   ×
@@ -218,6 +274,7 @@ export default function ChatClient() {
             messages.map((m) => (
               <div className={`msg ${m.pinned ? "is-pinned" : ""}`} key={m.id}>
                 <div className="head">
+                  <AuthorAvatar name={m.author} />
                   <span className="author">
                     {m.author}
                     <span className="rk">{RANK_SHORT[m.authorRank] ?? ""}</span>
@@ -237,7 +294,7 @@ export default function ChatClient() {
                   </button>
                 </div>
                 <div className="text">
-                  <Linkify text={m.body} />
+                  <MessageBody text={m.body} />
                 </div>
               </div>
             ))
@@ -250,13 +307,13 @@ export default function ChatClient() {
               type="button"
               className="btn btn-sm chat-tool"
               onClick={openBattleMenu}
-              title="Ubaci link aktivne bitke"
+              title="Ubaci chip bitke"
             >
               ⚔ Bitka
             </button>
             {battleMenuOpen && (
               <div className="dd-menu chat-battle-menu">
-                <div className="dd-title">Ubaci link bitke</div>
+                <div className="dd-title">Ubaci bitku</div>
                 {battles.length === 0 ? (
                   <div className="dd-empty">Ucitavanje...</div>
                 ) : (
@@ -266,7 +323,8 @@ export default function ChatClient() {
                       type="button"
                       className="dd-item"
                       onClick={() => {
-                        setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${b.label}: ${b.link} `);
+                        const token = `⟦BATTLE|${b.id}|${b.label}|${b.link}⟧`;
+                        setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${token} `);
                         setBattleMenuOpen(false);
                       }}
                     >

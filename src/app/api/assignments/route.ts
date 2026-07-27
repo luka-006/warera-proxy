@@ -4,6 +4,8 @@ import { db } from "@/db";
 import { battleAssignments, trackedMus } from "@/db/schema";
 import { requireActive, requireCommander } from "@/lib/guards";
 import { newId } from "@/lib/ids";
+import { notifyAllActive } from "@/lib/notify";
+import { battleLink } from "@/lib/warera";
 
 export const runtime = "nodejs";
 
@@ -25,12 +27,12 @@ export async function GET() {
   return NextResponse.json({ assignments: byBattle, units: mus });
 }
 
-// POST { battleId, muId, muName } — dodijeli jedinicu bitci
+// POST { battleId, muId, muName, battleLabel? } — dodijeli jedinicu bitci
 export async function POST(req: NextRequest) {
   const auth = await requireCommander();
   if ("error" in auth) return auth.error;
 
-  let body: { battleId?: string; muId?: string; muName?: string };
+  let body: { battleId?: string; muId?: string; muName?: string; battleLabel?: string };
   try {
     body = await req.json();
   } catch {
@@ -40,6 +42,7 @@ export async function POST(req: NextRequest) {
   const battleId = (body.battleId ?? "").trim();
   const muId = (body.muId ?? "").trim();
   const muName = (body.muName ?? "").trim().slice(0, 80) || "Jedinica";
+  const battleLabel = (body.battleLabel ?? "").trim().slice(0, 120);
   if (!battleId || !muId) {
     return NextResponse.json({ error: "Nedostaju podaci." }, { status: 400 });
   }
@@ -58,6 +61,20 @@ export async function POST(req: NextRequest) {
     muName,
     userId: auth.user.id
   });
+
+  // Obavijesti sve aktivne igrace u app-u
+  await notifyAllActive(
+    {
+      kind: "assign",
+      title: `${muName} → na bitku`,
+      body: battleLabel
+        ? `${auth.user.callsign} dodijelio ${muName} na: ${battleLabel}`
+        : `${auth.user.callsign} dodijelio ${muName} na bitku`,
+      link: battleLink(battleId),
+      battleId
+    },
+    auth.user.id
+  );
 
   return NextResponse.json({ ok: true });
 }

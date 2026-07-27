@@ -2,7 +2,18 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RANK_LABEL, isCommandRank } from "@/lib/ranks";
+
+interface Notif {
+  id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  read: boolean;
+  createdAt: string | number | Date;
+}
 
 export default function Nav({
   callsign,
@@ -13,11 +24,16 @@ export default function Nav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [unread, setUnread] = useState(0);
+  const [notifs, setNotifs] = useState<Notif[]>([]);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
   const links = [
     { href: "/", label: "Ploca" },
     { href: "/plan", label: "Plan" },
-    { href: "/jedinice", label: "Jedinice" }
+    { href: "/jedinice", label: "Jedinice" },
+    { href: "/status", label: "Status" }
   ];
   if (isCommandRank(rank)) {
     links.push({ href: "/chat", label: "Kanal" });
@@ -26,10 +42,63 @@ export default function Nav({
     links.push({ href: "/admin", label: "Sucelje" });
   }
 
+  const loadNotifs = useCallback(async () => {
+    const r = await fetch("/api/notifications");
+    if (!r.ok) return;
+    const d = await r.json();
+    setNotifs(d.notifications ?? []);
+    setUnread(d.unread ?? 0);
+  }, []);
+
+  useEffect(() => {
+    loadNotifs();
+    const t = setInterval(loadNotifs, 20_000);
+    return () => clearInterval(t);
+  }, [loadNotifs]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/prijava");
     router.refresh();
+  }
+
+  async function markAll() {
+    await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ all: true })
+    });
+    setUnread(0);
+    setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
+  }
+
+  async function openNotif(n: Notif) {
+    if (!n.read) {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: n.id })
+      });
+      setUnread((u) => Math.max(0, u - 1));
+      setNotifs((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+    }
+    setOpen(false);
+    if (n.link?.startsWith("http")) {
+      window.open(n.link, "_blank");
+    } else if (n.link) {
+      router.push(n.link);
+    } else {
+      router.push("/");
+    }
   }
 
   return (
@@ -51,6 +120,46 @@ export default function Nav({
         })}
       </nav>
       <div className="topbar-right">
+        <div className="dd notif-dd" ref={ref}>
+          <button
+            type="button"
+            className={`notif-bell ${unread ? "has" : ""}`}
+            onClick={() => {
+              setOpen((v) => !v);
+              if (!open) loadNotifs();
+            }}
+            title="Obavijesti"
+          >
+            ✶{unread > 0 && <span className="notif-badge">{unread > 9 ? "9+" : unread}</span>}
+          </button>
+          {open && (
+            <div className="dd-menu notif-menu right reveal">
+              <div className="dd-title" style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Obavijesti</span>
+                {unread > 0 && (
+                  <button type="button" className="linkish" style={{ margin: 0 }} onClick={markAll}>
+                    Sve procitano
+                  </button>
+                )}
+              </div>
+              {notifs.length === 0 ? (
+                <div className="dd-empty">Nema obavijesti</div>
+              ) : (
+                notifs.slice(0, 12).map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    className={`dd-item notif-item ${n.read ? "" : "unread"}`}
+                    onClick={() => openNotif(n)}
+                  >
+                    <span className="notif-title">{n.title}</span>
+                    {n.body && <span className="dd-hint">{n.body}</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
         <span className="mono">{callsign}</span>
         <span className="rank-tag">{RANK_LABEL[rank] ?? rank}</span>
         <button className="btn btn-sm" onClick={logout}>

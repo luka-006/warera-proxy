@@ -11,6 +11,8 @@ export const users = sqliteTable(
     rank: text("rank").notNull().default("vojnik"),
     status: text("status").notNull().default("ceka"),
     canChat: integer("can_chat", { mode: "boolean" }).notNull().default(true),
+    // 0-359 — boja kruga avatara
+    avatarHue: integer("avatar_hue"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
@@ -189,6 +191,63 @@ export const battleAssignments = sqliteTable(
   },
   (t) => ({
     battleIdx: index("battle_assignments_battle_idx").on(t.battleId)
+  })
+);
+
+// In-app notifikacije (dodjela jedinice, ping bitke, pomoci...)
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    link: text("link"),
+    battleId: text("battle_id"),
+    read: integer("read", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`)
+  },
+  (t) => ({
+    userIdx: index("notifications_user_idx").on(t.userId, t.createdAt)
+  })
+);
+
+// Status igraca (spreman / zauzet / ozlijeden / odsutan) + zahtjev za pomoc
+export const playerStatus = sqliteTable("player_status", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  // spreman | zauzet | ozlijeden | odsutan
+  health: text("health").notNull().default("spreman"),
+  helpMsg: text("help_msg"),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`)
+});
+
+// Jednokratne pozivnice (admin salje Discordom)
+export const invites = sqliteTable(
+  "invites",
+  {
+    id: text("id").primaryKey(),
+    code: text("code").notNull().unique(),
+    intendedCallsign: text("intended_callsign"),
+    note: text("note"),
+    createdBy: text("created_by").notNull(),
+    usedBy: text("used_by"),
+    usedAt: integer("used_at", { mode: "timestamp" }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`)
+  },
+  (t) => ({
+    codeIdx: index("invites_code_idx").on(t.code)
   })
 );
 

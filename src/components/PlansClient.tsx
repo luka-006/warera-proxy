@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Dropdown from "@/components/Dropdown";
 import Help from "@/components/Help";
 import { GEAR_CATALOG, gearIconUrl, gearLabel } from "@/lib/gear";
+import { avatarStyle, initials } from "@/lib/notify";
 
 interface Phase {
   title: string;
@@ -441,6 +442,9 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
                     })}
                   </div>
                   <span className="plan-meta">
+                    <span className="avatar-circle sm" style={avatarStyle(p.author)}>
+                      {initials(p.author)}
+                    </span>
                     {p.author} · {time(p.createdAt)}
                     {canWrite && (
                       <button className="linkish" onClick={() => del(p.id)}>

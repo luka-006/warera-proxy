@@ -226,7 +226,7 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
     }
   }
 
-  async function assign(battleId: string, muId: string) {
+  async function assign(battleId: string, muId: string, battleLabel?: string) {
     const unit = units.find((u) => u.muId === muId);
     if (!unit) return;
     const muName = unit.label ?? "Jedinica";
@@ -238,7 +238,7 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
     await fetch("/api/assignments", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ battleId, muId, muName })
+      body: JSON.stringify({ battleId, muId, muName, battleLabel })
     }).catch(() => {});
   }
 
@@ -251,6 +251,18 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
       `/api/assignments?battleId=${encodeURIComponent(battleId)}&muId=${encodeURIComponent(muId)}`,
       { method: "DELETE" }
     ).catch(() => {});
+  }
+
+  async function pingBattle(battle: Battle) {
+    await fetch("/api/ping", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        battleId: battle.id,
+        battleLabel: battle.label,
+        message: `Treba se na: ${battle.label}`
+      })
+    });
   }
 
   return (
@@ -295,8 +307,9 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
             open={openId === b.id}
             onToggle={() => setOpenId(openId === b.id ? null : b.id)}
             onSetPin={(prio) => setPin(b, prio)}
-            onAssign={(muId) => assign(b.id, muId)}
+            onAssign={(muId) => assign(b.id, muId, b.label)}
             onUnassign={(muId) => unassign(b.id, muId)}
+            onPing={() => pingBattle(b)}
             onNotesChange={(next) => setNotes((prev) => ({ ...prev, [b.id]: next }))}
           />
         ))}
@@ -399,6 +412,58 @@ function Contracts({ battle }: { battle: Battle }) {
   );
 }
 
+function BountyPopover({ battle }: { battle: Battle }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const chips: { side: string; text: string }[] = [];
+  for (const [side, lbl] of [
+    [battle.attacker, "Napadac"],
+    [battle.defender, "Branitelj"]
+  ] as const) {
+    if (side.bountyPer1k || side.bountyPool) {
+      const parts: string[] = [];
+      if (side.bountyPer1k) parts.push(`$${money(side.bountyPer1k)} / 1k stete`);
+      if (side.bountyPool) parts.push(`fond $${money(side.bountyPool)}`);
+      chips.push({ side: `${lbl}${side.name ? ` (${side.name})` : ""}`, text: parts.join(" · ") });
+    }
+  }
+  if (!chips.length) return null;
+
+  return (
+    <span className="bounty-wrap" ref={ref} onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        className="tag-ind bounty"
+        onClick={() => setOpen((v) => !v)}
+        title="Prikazi bounty"
+      >
+        $
+      </button>
+      {open && (
+        <span className="bounty-pop reveal">
+          <span className="dd-title">Bounty</span>
+          {chips.map((c) => (
+            <span key={c.side} className="bounty-line">
+              <b>{c.side}</b>
+              <span>{c.text}</span>
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function BountyChips({ battle }: { battle: Battle }) {
   const chips: { key: string; text: string; title: string }[] = [];
   for (const [side, lbl] of [
@@ -493,6 +558,7 @@ function BattleCard({
   onSetPin,
   onAssign,
   onUnassign,
+  onPing,
   onNotesChange
 }: {
   battle: Battle;
@@ -506,6 +572,7 @@ function BattleCard({
   onSetPin: (p: number | null) => void;
   onAssign: (muId: string) => void;
   onUnassign: (muId: string) => void;
+  onPing: () => void;
   onNotesChange: (n: Note[]) => void;
 }) {
   const [noteOpen, setNoteOpen] = useState(false);
@@ -616,11 +683,7 @@ function BattleCard({
               ✎ {notes.length}
             </span>
           )}
-          {hasBounty && (
-            <span className="tag-ind bounty" title="Aktivan bounty">
-              $
-            </span>
-          )}
+          {hasBounty && <BountyPopover battle={battle} />}
           {contractCount > 0 && (
             <span className="tag-ind" title={`${contractCount} ugovora jedinica`}>
               ⛨ {contractCount}
@@ -652,6 +715,17 @@ function BattleCard({
               </span>
             )}
             <BountyChips battle={battle} />
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPing();
+              }}
+              title="Posalji ping svim igracima"
+            >
+              ✶ Ping
+            </button>
             <Ext href={battle.link} className="open-battle" title="Otvori bitku u War Era" stop>
               Otvori u War Era
             </Ext>

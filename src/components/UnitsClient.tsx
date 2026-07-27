@@ -72,6 +72,7 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
   const [loading, setLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [q, setQ] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,7 +94,7 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
 
   async function discover() {
     setDiscovering(true);
-    setMessage("Skeniram War Era ljestvicu za HR/KG jedinice...");
+    setMessage("Skeniram...");
     try {
       const res = await fetch("/api/warera/units", {
         method: "POST",
@@ -102,7 +103,7 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage(`Pronadeno ${data.found} jedinica: ${(data.names ?? []).join(", ")}`);
+        setMessage(`Pronadeno ${data.found}: ${(data.names ?? []).join(", ")}`);
         await load();
       } else {
         setMessage(data.error ?? "Otkrivanje nije uspjelo.");
@@ -114,12 +115,25 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
     }
   }
 
+  const query = q.trim().toLowerCase();
+  const visible = query
+    ? units.filter((u) => u.name.toLowerCase() === query || u.name.toLowerCase().includes(query))
+    : units;
+  // Exact match first when searching full name
+  const sorted = query
+    ? [...visible].sort((a, b) => {
+        const ae = a.name.toLowerCase() === query ? 0 : 1;
+        const be = b.name.toLowerCase() === query ? 0 : 1;
+        return ae - be;
+      })
+    : visible;
+
   return (
     <div>
       <div className="section-head">
         <h1>Vojne jedinice</h1>
         <div className="head-actions">
-          <Help text="Prati se svaka jedinica pod hrvatskim zapovjednistvom, ukljucujuci one registrirane pod Kirgistanom. Skeniranje pronalazi nove jedinice automatski." />
+          <Help text="Skeniranje pronalazi jedinice. Pretraga radi po imenu (velika/mala slova svejedno)." />
           {isAdmin && (
             <button className="btn btn-sm" onClick={discover} disabled={discovering}>
               {discovering ? "Skeniram..." : "Skeniraj"}
@@ -131,18 +145,25 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
         </div>
       </div>
 
+      <div className="board-toolbar">
+        <input
+          className="board-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Pretrazi jedinicu po imenu..."
+        />
+      </div>
+
       {message && <div className="notice">{message}</div>}
       {loading && units.length === 0 && <div className="empty">Ucitavanje jedinica...</div>}
-      {!loading && units.length === 0 && !message && (
-        <div className="empty">Nema pracenih jedinica</div>
-      )}
+      {!loading && sorted.length === 0 && <div className="empty">Nema pogodaka</div>}
 
       <div className="unit-list">
-        {units.map((u) => {
+        {sorted.map((u) => {
           const open = openId === u.id;
           const dmg = fmtDamage(u.weeklyDamage);
           return (
-            <article key={u.id} className="unit-card">
+            <article key={u.id} className={`unit-card ${open ? "open" : ""}`}>
               <div className="unit-head">
                 <a href={u.link} target="_blank" rel="noreferrer" className="unit-brand">
                   <Avatar url={u.avatarUrl} name={u.name} size={48} />
@@ -188,7 +209,7 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
               )}
 
               {open && (
-                <div className="unit-section reveal">
+                <div className="unit-section expand-panel">
                   <div className="unit-section-lbl">Vojnici</div>
                   <div className="member-list">
                     {u.soldiers.length === 0 ? (

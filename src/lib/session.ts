@@ -86,7 +86,7 @@ export function isAdmin(u: { rank: string } | null): boolean {
 }
 
 export function isCommander(u: { rank: string } | null): boolean {
-  return u?.rank === "admin" || u?.rank === "zapovjednik";
+  return u?.rank === "admin" || u?.rank === "visoki" || u?.rank === "zapovjednik";
 }
 
 export type { User };
