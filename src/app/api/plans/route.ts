@@ -16,6 +16,12 @@ export interface PlanPhase {
   title: string;
   when: string;
   body: string;
+  mus?: { muId: string; name: string }[];
+}
+
+export interface PlanMu {
+  muId: string;
+  name: string;
 }
 
 export interface AttackTime {
@@ -48,6 +54,33 @@ function parseGear(raw: string | null): string[] {
   }
 }
 
+function parseMus(raw: string | null): PlanMu[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((x) => ({
+        muId: String(x?.muId ?? "").trim().slice(0, 40),
+        name: String(x?.name ?? "").trim().slice(0, 80)
+      }))
+      .filter((x) => x.muId && x.name);
+  } catch {
+    return [];
+  }
+}
+
+function sanitizeMus(input: unknown): PlanMu[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((x) => ({
+      muId: String(x?.muId ?? "").trim().slice(0, 40),
+      name: String(x?.name ?? "").trim().slice(0, 80)
+    }))
+    .filter((x) => x.muId && x.name)
+    .slice(0, 12);
+}
+
 function parseAttackTimes(raw: string | null): AttackTime[] {
   if (!raw) return [];
   try {
@@ -72,8 +105,9 @@ function sanitizePhases(input: unknown): PlanPhase[] | null {
     const title = String(p?.title ?? "").trim().slice(0, 80);
     const when = String(p?.when ?? "").trim().slice(0, 60);
     const body = String(p?.body ?? "").trim().slice(0, 1500);
+    const mus = sanitizeMus(p?.mus);
     if (!title && !body) continue;
-    out.push({ title, when, body });
+    out.push({ title, when, body, mus: mus.length ? mus : undefined });
   }
   return out;
 }
@@ -109,6 +143,7 @@ export async function GET() {
       battleLabel: plans.battleLabel,
       followsPlanId: plans.followsPlanId,
       gear: plans.gear,
+      mus: plans.mus,
       createdAt: plans.createdAt,
       updatedAt: plans.updatedAt,
       author: users.callsign,
@@ -148,6 +183,7 @@ export async function GET() {
     expect: r.expect ?? "",
     attackTimes: parseAttackTimes(r.attackTimes),
     phases: parsePhases(r.phases),
+    mus: parseMus(r.mus),
     gear: parseGear(r.gear),
     battleLink: r.battleId ? battleLink(r.battleId) : null,
     reactions: byPlan.get(r.id)?.counts ?? {},
@@ -173,6 +209,7 @@ export async function POST(req: NextRequest) {
     battleLabel?: string;
     followsPlanId?: string;
     gear?: unknown;
+    mus?: unknown;
   };
   try {
     body = await req.json();
@@ -220,6 +257,7 @@ export async function POST(req: NextRequest) {
   const gear = Array.isArray(body.gear)
     ? (body.gear as unknown[]).map(String).filter((k) => GEAR_KEYS.includes(k)).slice(0, 24)
     : [];
+  const mus = sanitizeMus(body.mus);
 
   const id = newId();
   const now = new Date();
@@ -242,6 +280,7 @@ export async function POST(req: NextRequest) {
     battleLabel,
     followsPlanId,
     gear: gear.length ? JSON.stringify(gear) : null,
+    mus: mus.length ? JSON.stringify(mus) : null,
     userId: auth.user.id,
     createdAt: now,
     updatedAt: now
@@ -261,6 +300,7 @@ export async function POST(req: NextRequest) {
       battleLabel,
       followsPlanId,
       gear,
+      mus,
       battleLink: battleId ? battleLink(battleId) : null,
       reactions: {},
       myReactions: [],

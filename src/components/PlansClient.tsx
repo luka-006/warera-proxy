@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Dropdown from "@/components/Dropdown";
 import Help from "@/components/Help";
-import { GEAR_SLOTS, gearIconUrl, gearLabel, gearMeta, RARITIES } from "@/lib/gear";
+import { MuChipRow, MuPicker, type MuOpt, type PlanMu } from "@/components/MuChips";
 import PlacePicker, { type RegionOpt } from "@/components/PlacePicker";
+import { GEAR_SLOTS, gearIconUrl, gearLabel, gearMeta, RARITIES } from "@/lib/gear";
 import { regionToken } from "@/lib/tags";
 import { avatarStyle, initials } from "@/lib/avatar";
 import { RANK_LABEL, rankOutlineClass } from "@/lib/ranks";
@@ -13,6 +14,7 @@ interface Phase {
   title: string;
   when: string;
   body: string;
+  mus?: PlanMu[];
 }
 
 interface AttackTime {
@@ -30,6 +32,7 @@ interface Plan {
   attackTimes: AttackTime[];
   phases: Phase[];
   gear: string[];
+  mus: PlanMu[];
   battleId: string | null;
   battleLabel: string | null;
   battleLink: string | null;
@@ -47,6 +50,8 @@ interface BattleOpt {
   regionName?: string;
 }
 
+type SortMode = "priority" | "date" | "recent";
+
 const PRIO_COLOR: Record<string, string> = {
   HITNO: "var(--prio-hitno)",
   VISOKO: "var(--prio-visoko)",
@@ -54,11 +59,11 @@ const PRIO_COLOR: Record<string, string> = {
   NISKO: "var(--prio-nisko)"
 };
 
-const TYPE_LABEL: Record<string, string> = {
-  trenutni: "Trenutni plan",
-  buduci: "Buduci plan",
-  zapovijed: "Trenutni plan",
-  plan: "Buduci plan"
+const PRIO_ORDER: Record<string, number> = {
+  HITNO: 0,
+  VISOKO: 1,
+  NORMALNO: 2,
+  NISKO: 3
 };
 
 const EMOJIS = ["🫡", "❤️", "👍"];
@@ -77,6 +82,44 @@ function isAttackPast(at: string) {
   const d = new Date(at);
   if (Number.isNaN(d.getTime())) return false;
   return d.getTime() < Date.now();
+}
+
+function isTrenutni(p: Plan) {
+  return p.type === "trenutni" || p.type === "zapovijed";
+}
+
+function nextAttack(p: Plan): { at: string; label: string } | null {
+  const sorted = [...(p.attackTimes ?? [])]
+    .map((t) => ({ ...t, ts: new Date(t.at).getTime() }))
+    .filter((t) => !Number.isNaN(t.ts))
+    .sort((a, b) => a.ts - b.ts);
+  const future = sorted.find((t) => t.ts >= Date.now());
+  if (future) return { at: future.at, label: future.label };
+  return sorted.length ? { at: sorted[sorted.length - 1].at, label: sorted[sorted.length - 1].label } : null;
+}
+
+function sortPlans(list: Plan[], mode: SortMode): Plan[] {
+  const copy = [...list];
+  if (mode === "recent") {
+    return copy.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+  if (mode === "priority") {
+    return copy.sort((a, b) => {
+      const pa = PRIO_ORDER[a.priority] ?? 2;
+      const pb = PRIO_ORDER[b.priority] ?? 2;
+      if (pa !== pb) return pa - pb;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }
+  // date — najblizi napad prvi
+  return copy.sort((a, b) => {
+    const na = nextAttack(a);
+    const nb = nextAttack(b);
+    const ta = na ? new Date(na.at).getTime() : Infinity;
+    const tb = nb ? new Date(nb.at).getTime() : Infinity;
+    if (ta !== tb) return ta - tb;
+    return (PRIO_ORDER[a.priority] ?? 2) - (PRIO_ORDER[b.priority] ?? 2);
+  });
 }
 
 function GearIcons({ gear }: { gear: string[] }) {
@@ -136,11 +179,107 @@ function RichPlanText({ text }: { text: string }) {
   return <div className="plan-body">{parts}</div>;
 }
 
+function PlanOverview({
+  current,
+  future,
+  sort,
+  onSort,
+  pastBattle
+}: {
+  current: Plan | null;
+  future: Plan[];
+  sort: SortMode;
+  onSort: (s: SortMode) => void;
+  pastBattle: (p: Plan) => boolean;
+}) {
+  return (
+    <div className="plan-overview panel panel-pad">
+      <div className="plan-overview-head">
+        <div>
+          <div className="plan-overview-title">Pregled planova</div>
+          <div className="plan-overview-meta">
+            {current ? "1 aktivan" : "Nema trenutnog"} · {future.length} buducih
+          </div>
+        </div>
+        <div className="plan-sort">
+          <span className="lbl">Sortiraj</span>
+          <div className="plan-sort-btns">
+            {(
+              [
+                ["priority", "Prioritet"],
+                ["date", "Datum"],
+                ["recent", "Najnovije"]
+              ] as const
+            ).map(([k, lbl]) => (
+              <button
+                key={k}
+                type="button"
+                className={`btn btn-sm ${sort === k ? "btn-primary" : ""}`}
+                onClick={() => onSort(k)}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {current && (
+        <a href={`#plan-${current.id}`} className="plan-hero reveal">
+          <div className="plan-hero-tag">TRENUTNI PLAN</div>
+          <div className="plan-hero-main">
+            <span className="prio-dot" style={{ background: PRIO_COLOR[current.priority] }} />
+            <div>
+              <div className="plan-hero-title">{current.title}</div>
+              <div className="plan-hero-sub">
+                {current.priority}
+                {nextAttack(current) && (
+                  <> · Sljedeci: {fmtAt(nextAttack(current)!.at)}</>
+                )}
+                {current.mus?.length > 0 && <> · {current.mus.length} MU</>}
+              </div>
+            </div>
+          </div>
+        </a>
+      )}
+
+      {future.length > 0 && (
+        <div className="plan-index">
+          <div className="lbl">Buduci — redoslijed</div>
+          <div className="plan-index-list">
+            {future.map((p, idx) => {
+              const na = nextAttack(p);
+              const past = pastBattle(p);
+              return (
+                <a
+                  key={p.id}
+                  href={`#plan-${p.id}`}
+                  className={`plan-index-row ${past ? "past" : ""}`}
+                >
+                  <span className="plan-index-num">{idx + 1}</span>
+                  <span className="prio-dot sm" style={{ background: PRIO_COLOR[p.priority] }} />
+                  <span className="plan-index-title">{p.title}</span>
+                  <span className="plan-index-prio">{p.priority}</span>
+                  {na && <span className="plan-index-when">{fmtAt(na.at)}</span>}
+                  {p.mus?.length > 0 && (
+                    <span className="plan-index-mus">⚑ {p.mus.length}</span>
+                  )}
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlanCard({
   p,
   plans,
   canWrite,
   pastBattle,
+  avatarMap,
   onDel,
   onReact
 }: {
@@ -148,28 +287,43 @@ function PlanCard({
   plans: Plan[];
   canWrite: boolean;
   pastBattle: boolean;
+  avatarMap: Map<string, string>;
   onDel: (id: string) => void;
   onReact: (plan: Plan, emoji: string) => void;
 }) {
   const prev = p.followsPlanId ? plans.find((x) => x.id === p.followsPlanId) : null;
   const next = plans.filter((x) => x.followsPlanId === p.id);
-  const isTrenutni = p.type === "trenutni" || p.type === "zapovijed";
+  const trenutni = isTrenutni(p);
+  const na = nextAttack(p);
 
   return (
     <article
       id={`plan-${p.id}`}
-      className={`plan-card ${isTrenutni ? "is-cmd" : "is-future"} ${pastBattle ? "past-battle" : ""} ${rankOutlineClass(p.authorRank)}`}
+      className={`plan-card ${trenutni ? "is-cmd" : "is-future"} ${pastBattle ? "past-battle" : ""} ${rankOutlineClass(p.authorRank)}`}
       style={{ borderLeftColor: pastBattle ? "var(--ink-faint)" : PRIO_COLOR[p.priority] ?? "var(--line-strong)" }}
     >
       <div className="plan-head">
         <span className="prio-chip" style={{ color: pastBattle ? "var(--ink-faint)" : PRIO_COLOR[p.priority] }}>
           {p.priority}
         </span>
-        <span className={`type-chip ${isTrenutni ? "cmd" : "future"}`}>
-          {TYPE_LABEL[p.type] ?? p.type}
+        <span className={`type-chip ${trenutni ? "cmd" : "future"}`}>
+          {trenutni ? "Trenutni plan" : "Buduci plan"}
         </span>
+        {na && (
+          <span className={`plan-when-badge ${isAttackPast(na.at) ? "past" : ""}`}>
+            {na.label ? `${na.label}: ` : ""}
+            {fmtAt(na.at)}
+          </span>
+        )}
         <h2>{p.title}</h2>
       </div>
+
+      {p.mus?.length > 0 && (
+        <div className="plan-mu-block">
+          <span className="contracts-lbl">Jedinice u planu</span>
+          <MuChipRow mus={p.mus} avatarMap={avatarMap} />
+        </div>
+      )}
 
       {(prev || next.length > 0 || p.battleLink) && (
         <div className="plan-links">
@@ -197,7 +351,7 @@ function PlanCard({
         </div>
       )}
 
-                <RichPlanText text={p.body} />
+      <RichPlanText text={p.body} />
 
       {p.expect && (
         <div className="plan-expect">
@@ -210,12 +364,14 @@ function PlanCard({
         <div className="attack-times">
           <div className="lbl">Vremena / datumi napada</div>
           <div className="attack-time-list">
-            {p.attackTimes.map((t, i) => (
-              <span key={i} className={`attack-chip ${isAttackPast(t.at) ? "past" : ""}`}>
-                {t.label ? `${t.label}: ` : ""}
-                {fmtAt(t.at)}
-              </span>
-            ))}
+            {[...p.attackTimes]
+              .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+              .map((t, i) => (
+                <span key={i} className={`attack-chip ${isAttackPast(t.at) ? "past" : ""}`}>
+                  {t.label ? `${t.label}: ` : ""}
+                  {fmtAt(t.at)}
+                </span>
+              ))}
           </div>
         </div>
       )}
@@ -235,6 +391,9 @@ function PlanCard({
                   {ph.title || `Faza ${i + 1}`}
                   {ph.when && <span className="phase-when-chip">{ph.when}</span>}
                 </div>
+                {ph.mus && ph.mus.length > 0 && (
+                  <MuChipRow mus={ph.mus} avatarMap={avatarMap} />
+                )}
                 {ph.body && <div className="phase-body">{ph.body}</div>}
               </div>
             </div>
@@ -284,7 +443,9 @@ function PlanCard({
 export default function PlansClient({ canWrite }: { canWrite: boolean }) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [battles, setBattles] = useState<BattleOpt[]>([]);
+  const [muOptions, setMuOptions] = useState<MuOpt[]>([]);
   const [activeBattleIds, setActiveBattleIds] = useState<Set<string>>(new Set());
+  const [sort, setSort] = useState<SortMode>("priority");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [expect, setExpect] = useState("");
@@ -293,18 +454,51 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
   const [battleId, setBattleId] = useState("");
   const [followsPlanId, setFollowsPlanId] = useState("");
   const [gear, setGear] = useState<string[]>([]);
+  const [planMus, setPlanMus] = useState<PlanMu[]>([]);
   const [phases, setPhases] = useState<Phase[]>([]);
   const [attackTimes, setAttackTimes] = useState<AttackTime[]>([]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const avatarMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const u of muOptions) {
+      if (u.avatarUrl) m.set(u.muId, u.avatarUrl);
+    }
+    return m;
+  }, [muOptions]);
+
   const load = useCallback(async () => {
     const res = await fetch("/api/plans");
-    if (res.ok) setPlans((await res.json()).plans ?? []);
+    if (res.ok) {
+      const data = await res.json();
+      setPlans(
+        (data.plans ?? []).map((p: Plan) => ({
+          ...p,
+          mus: p.mus ?? [],
+          phases: (p.phases ?? []).map((ph: Phase) => ({ ...ph, mus: ph.mus ?? [] }))
+        }))
+      );
+    }
+  }, []);
+
+  const loadMus = useCallback(async () => {
+    const r = await fetch("/api/warera/units");
+    if (!r.ok) return;
+    const d = await r.json();
+    setMuOptions(
+      (d.units ?? []).map((u: { id: string; name: string; avatarUrl?: string; link?: string }) => ({
+        muId: u.id,
+        name: u.name,
+        avatarUrl: u.avatarUrl,
+        link: u.link
+      }))
+    );
   }, []);
 
   useEffect(() => {
     load();
+    loadMus();
     fetch("/api/warera/battles")
       .then((r) => r.json())
       .then((d) => {
@@ -312,14 +506,14 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
         setActiveBattleIds(new Set(list.map((b) => b.id)));
       })
       .catch(() => {});
-  }, [load]);
+  }, [load, loadMus]);
 
   useEffect(() => {
     if (!open || battles.length) return;
     fetch("/api/warera/battles")
       .then((r) => r.json())
       .then((d) => {
-        const list = (d.battles ?? []).map((b: any) => ({
+        const list = (d.battles ?? []).map((b: { id: string; label: string; regionName?: string }) => ({
           id: b.id,
           label: b.label,
           regionName: b.regionName
@@ -372,6 +566,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
           battleLabel: battle?.label,
           followsPlanId: followsPlanId || undefined,
           gear,
+          mus: planMus,
           phases: phases.filter((p) => p.title.trim() || p.body.trim()),
           attackTimes: attackTimes.filter((t) => t.at.trim())
         })
@@ -385,6 +580,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
         setBattleId("");
         setFollowsPlanId("");
         setGear([]);
+        setPlanMus([]);
         setOpen(false);
         await load();
       }
@@ -424,11 +620,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
 
   const battleOptions = [
     { value: "", label: "Bez bitke" },
-    ...battles.map((b) => ({
-      value: b.id,
-      label: b.label,
-      hint: b.regionName
-    }))
+    ...battles.map((b) => ({ value: b.id, label: b.label, hint: b.regionName }))
   ];
 
   const followOptions = [
@@ -436,8 +628,11 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
     ...plans.map((p) => ({ value: p.id, label: p.title }))
   ];
 
-  const trenutni = plans.filter((p) => p.type === "trenutni" || p.type === "zapovijed");
-  const buduci = plans.filter((p) => p.type === "buduci" || p.type === "plan" || p.type === "program");
+  const trenutniRaw = plans.filter(isTrenutni);
+  const buduciRaw = plans.filter((p) => !isTrenutni(p));
+  const currentPlan = trenutniRaw[0] ?? null;
+  const trenutniRest = trenutniRaw.slice(1);
+  const buduciSorted = sortPlans([...buduciRaw, ...trenutniRest], sort);
 
   function pastBattle(p: Plan) {
     if (p.battleId && !activeBattleIds.has(p.battleId)) return true;
@@ -450,7 +645,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
       <div className="section-head">
         <h1>Planovi</h1>
         <div className="head-actions">
-          <Help text="Trenutni plan je aktivan briefing. Buduci planovi su priprema. Prosla bitka u planu postaje siva." />
+          <Help text="Trenutni plan je aktivan. Buduci se sortiraju po prioritetu, datumu napada ili najnovijem. Dodaj MU na plan i po fazama." />
           {canWrite && (
             <button className="btn btn-primary btn-sm" onClick={() => setOpen((v) => !v)}>
               {open ? "Zatvori" : "Nova objava"}
@@ -458,6 +653,16 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
           )}
         </div>
       </div>
+
+      {plans.length > 0 && (
+        <PlanOverview
+          current={currentPlan}
+          future={buduciSorted}
+          sort={sort}
+          onSort={setSort}
+          pastBattle={pastBattle}
+        />
+      )}
 
       {canWrite && open && (
         <form onSubmit={submit} className="panel panel-pad reveal" style={{ marginBottom: 18 }}>
@@ -493,30 +698,20 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
           </div>
           <div className="form-row">
             <label className="field">
-              <span className="lbl">Aktivna bitka (direktan link)</span>
-              <Dropdown
-                value={battleId}
-                onChange={setBattleId}
-                options={battleOptions}
-                placeholder="Bez bitke"
-              />
+              <span className="lbl">Aktivna bitka</span>
+              <Dropdown value={battleId} onChange={setBattleId} options={battleOptions} placeholder="Bez bitke" />
             </label>
             <label className="field">
-              <span className="lbl">
-                Nastavak na plan <Help text="Povezi plan u lanac." />
-              </span>
-              <Dropdown
-                value={followsPlanId}
-                onChange={setFollowsPlanId}
-                options={followOptions}
-                placeholder="Samostalan plan"
-              />
+              <span className="lbl">Nastavak na plan</span>
+              <Dropdown value={followsPlanId} onChange={setFollowsPlanId} options={followOptions} placeholder="Samostalan" />
             </label>
           </div>
+
+          <MuPicker selected={planMus} options={muOptions} onChange={setPlanMus} label="Jedinice u planu" />
+
           <label className="field">
             <span className="lbl">
-              Detalji plana{" "}
-              <PlacePicker onPick={insertPlace} buttonLabel="Ubaci mjesto" />
+              Detalji plana <PlacePicker onPick={insertPlace} buttonLabel="Ubaci mjesto" />
             </span>
             <textarea
               value={body}
@@ -524,7 +719,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
               required
               maxLength={8000}
               style={{ minHeight: 140 }}
-              placeholder="Npr. Napadamo u [Mjesto] — sto, tko, kako..."
+              placeholder="Sto, tko, gdje, kako..."
             />
           </label>
 
@@ -535,7 +730,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
               onChange={(e) => setExpect(e.target.value)}
               maxLength={4000}
               style={{ minHeight: 90 }}
-              placeholder="Ishod, rizici, sto trebamo postici..."
+              placeholder="Ishod, rizici..."
             />
           </label>
 
@@ -543,11 +738,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
             <div className="phase-builder-head">
               <span className="lbl">Vremena i datumi napada</span>
               {attackTimes.length < 12 && (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => setAttackTimes((p) => [...p, { at: "", label: "" }])}
-                >
+                <button type="button" className="btn btn-sm" onClick={() => setAttackTimes((p) => [...p, { at: "", label: "" }])}>
                   + Dodaj vrijeme
                 </button>
               )}
@@ -555,35 +746,16 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
             {attackTimes.map((t, i) => (
               <div key={i} className="phase-edit reveal attack-edit">
                 <div className="phase-edit-top">
-                  <input
-                    value={t.label}
-                    onChange={(e) => updateAttack(i, { label: e.target.value })}
-                    placeholder="Oznaka (npr. Faza 1 / proboj)"
-                    maxLength={80}
-                  />
-                  <input
-                    type="datetime-local"
-                    value={t.at}
-                    onChange={(e) => updateAttack(i, { at: e.target.value })}
-                    className="phase-when"
-                  />
-                  <button
-                    type="button"
-                    className="linkish"
-                    onClick={() => setAttackTimes((p) => p.filter((_, idx) => idx !== i))}
-                  >
-                    ukloni
-                  </button>
+                  <input value={t.label} onChange={(e) => updateAttack(i, { label: e.target.value })} placeholder="Oznaka" maxLength={80} />
+                  <input type="datetime-local" value={t.at} onChange={(e) => updateAttack(i, { at: e.target.value })} className="phase-when" />
+                  <button type="button" className="linkish" onClick={() => setAttackTimes((p) => p.filter((_, idx) => idx !== i))}>ukloni</button>
                 </div>
               </div>
             ))}
           </div>
 
           <div className="field">
-            <span className="lbl">
-              Preporucena oprema{" "}
-              <Help text="Po slotu odaberi rarity (armor) ili oruzje (snajper, tenk, jet...)." />
-            </span>
+            <span className="lbl">Preporucena oprema</span>
             <div className="gear-slots">
               {GEAR_SLOTS.map((s) => (
                 <label key={s.slot} className="gear-slot">
@@ -604,18 +776,13 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
                 </label>
               ))}
             </div>
-            {gear.length > 0 && <GearIcons gear={gear} />}
           </div>
 
           <div className="phase-builder">
             <div className="phase-builder-head">
               <span className="lbl">Faze plana</span>
               {phases.length < 12 && (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => setPhases((p) => [...p, { title: "", when: "", body: "" }])}
-                >
+                <button type="button" className="btn btn-sm" onClick={() => setPhases((p) => [...p, { title: "", when: "", body: "", mus: [] }])}>
                   + Dodaj fazu
                 </button>
               )}
@@ -624,33 +791,17 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
               <div key={i} className="phase-edit reveal">
                 <div className="phase-edit-top">
                   <span className="phase-num">FAZA {i + 1}</span>
-                  <input
-                    value={ph.title}
-                    onChange={(e) => updatePhase(i, { title: e.target.value })}
-                    placeholder="Naziv faze"
-                    maxLength={80}
-                  />
-                  <input
-                    value={ph.when}
-                    onChange={(e) => updatePhase(i, { when: e.target.value })}
-                    placeholder="Kada"
-                    maxLength={60}
-                    className="phase-when"
-                  />
-                  <button
-                    type="button"
-                    className="linkish"
-                    onClick={() => setPhases((p) => p.filter((_, idx) => idx !== i))}
-                  >
-                    ukloni
-                  </button>
+                  <input value={ph.title} onChange={(e) => updatePhase(i, { title: e.target.value })} placeholder="Naziv faze" maxLength={80} />
+                  <input value={ph.when} onChange={(e) => updatePhase(i, { when: e.target.value })} placeholder="Kada" maxLength={60} className="phase-when" />
+                  <button type="button" className="linkish" onClick={() => setPhases((p) => p.filter((_, idx) => idx !== i))}>ukloni</button>
                 </div>
-                <textarea
-                  value={ph.body}
-                  onChange={(e) => updatePhase(i, { body: e.target.value })}
-                  placeholder="Detalji faze..."
-                  maxLength={1500}
+                <MuPicker
+                  selected={ph.mus ?? []}
+                  options={muOptions}
+                  onChange={(mus) => updatePhase(i, { mus })}
+                  label="Jedinice u fazi"
                 />
+                <textarea value={ph.body} onChange={(e) => updatePhase(i, { body: e.target.value })} placeholder="Detalji faze..." maxLength={1500} />
               </div>
             ))}
           </div>
@@ -665,44 +816,43 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
         <div className="empty">Nema objava</div>
       ) : (
         <>
-          <div className="plan-section-lbl">Trenutni plan</div>
-          {trenutni.length === 0 ? (
-            <div className="empty soft">Nema trenutnog plana</div>
-          ) : (
-            <div className="plan-list">
-              {trenutni.map((p) => (
+          {currentPlan && (
+            <>
+              <div className="plan-section-lbl">Trenutni plan — detalji</div>
+              <div className="plan-list">
                 <PlanCard
-                  key={p.id}
-                  p={p}
+                  p={currentPlan}
                   plans={plans}
                   canWrite={canWrite}
-                  pastBattle={pastBattle(p)}
+                  pastBattle={pastBattle(currentPlan)}
+                  avatarMap={avatarMap}
                   onDel={del}
                   onReact={react}
                 />
-              ))}
-            </div>
+              </div>
+            </>
           )}
 
-          <div className="plan-section-lbl" style={{ marginTop: 22 }}>
-            Buduci plan
-          </div>
-          {buduci.length === 0 ? (
-            <div className="empty soft">Nema buducih planova</div>
-          ) : (
-            <div className="plan-list">
-              {buduci.map((p) => (
-                <PlanCard
-                  key={p.id}
-                  p={p}
-                  plans={plans}
-                  canWrite={canWrite}
-                  pastBattle={pastBattle(p)}
-                  onDel={del}
-                  onReact={react}
-                />
-              ))}
-            </div>
+          {buduciSorted.length > 0 && (
+            <>
+              <div className="plan-section-lbl" style={{ marginTop: 22 }}>
+                Buduci planovi
+              </div>
+              <div className="plan-list">
+                {buduciSorted.map((p) => (
+                  <PlanCard
+                    key={p.id}
+                    p={p}
+                    plans={plans}
+                    canWrite={canWrite}
+                    pastBattle={pastBattle(p)}
+                    avatarMap={avatarMap}
+                    onDel={del}
+                    onReact={react}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </>
       )}

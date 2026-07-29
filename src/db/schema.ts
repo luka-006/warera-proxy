@@ -132,6 +132,8 @@ export const plans = sqliteTable(
     followsPlanId: text("follows_plan_id"),
     // JSON niz preporucene opreme (kljucevi iz kataloga)
     gear: text("gear"),
+    // JSON: [{ muId, name }] dodijeljene jedinice
+    mus: text("mus"),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
