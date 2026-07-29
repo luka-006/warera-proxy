@@ -1,18 +1,91 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { trackedMus } from "@/db/schema";
+import { trackedMus, users } from "@/db/schema";
 import { requireActive, requireAdmin } from "@/lib/guards";
 import {
   discoverCroatianMus,
   getMilitaryUnits,
   isConfigured,
-  parseMuId
+  parseMuId,
+  userLink,
+  type MilitaryUnit
 } from "@/lib/warera";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+const TEST_MU_ID = "__testmu__";
+
+async function buildTestMu(): Promise<MilitaryUnit> {
+  const appUsers = await db
+    .select({
+      id: users.id,
+      callsign: users.callsign,
+      rank: users.rank
+    })
+    .from(users)
+    .where(eq(users.status, "aktivan"));
+
+  const commanders = appUsers
+    .filter((u) => u.rank === "admin" || u.rank === "visoki")
+    .map((u) => ({
+      id: u.id,
+      username: u.callsign,
+      link: userLink(u.id),
+      isCommander: true,
+      isManager: false
+    }));
+  const managers = appUsers
+    .filter((u) => u.rank === "zapovjednik")
+    .map((u) => ({
+      id: u.id,
+      username: u.callsign,
+      link: userLink(u.id),
+      isCommander: false,
+      isManager: true
+    }));
+  const soldiers = appUsers
+    .filter((u) => u.rank === "vojnik" || (!["admin", "visoki", "zapovjednik"].includes(u.rank)))
+    .map((u) => ({
+      id: u.id,
+      username: u.callsign,
+      link: userLink(u.id),
+      isCommander: false,
+      isManager: false
+    }));
+
+  // Ako nema vojnika, stavi sve aktivne kao vojnike (osim vec u zapovjednistvu)
+  const taken = new Set([...commanders, ...managers].map((m) => m.id));
+  const rest = appUsers
+    .filter((u) => !taken.has(u.id))
+    .map((u) => ({
+      id: u.id,
+      username: u.callsign,
+      link: userLink(u.id),
+      isCommander: false,
+      isManager: false
+    }));
+
+  return {
+    id: TEST_MU_ID,
+    name: "TestMU",
+    link: "/jedinice",
+    countryCode: "hr",
+    countryName: "Hrvatska",
+    memberCount: appUsers.length,
+    commanders: commanders.length ? commanders : appUsers.slice(0, 1).map((u) => ({
+      id: u.id,
+      username: u.callsign,
+      link: userLink(u.id),
+      isCommander: true,
+      isManager: false
+    })),
+    managers,
+    soldiers: soldiers.length ? soldiers : rest
+  };
+}
 
 export async function GET() {
   const auth = await requireActive();
@@ -21,12 +94,14 @@ export async function GET() {
   const tracked = await db.select().from(trackedMus);
   const ids = tracked.map((t) => t.muId);
 
-  // Env fallback: WARERA_MU_IDS=id1,id2
   const fromEnv = (process.env.WARERA_MU_IDS ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   const allIds = [...new Set([...ids, ...fromEnv])];
+
+  const hasTest = allIds.includes(TEST_MU_ID);
+  const wareraIds = allIds.filter((id) => id !== TEST_MU_ID);
 
   if (!allIds.length) {
     return NextResponse.json({
@@ -36,27 +111,36 @@ export async function GET() {
     });
   }
 
-  if (!isConfigured()) {
-    return NextResponse.json({
-      units: [],
-      configured: false,
-      message: "War Era API kljuc nije postavljen."
-    });
+  const units: MilitaryUnit[] = [];
+  if (hasTest) {
+    units.push(await buildTestMu());
   }
 
-  try {
-    const units = await getMilitaryUnits(allIds);
-    units.sort((a, b) => (b.weeklyDamage ?? 0) - (a.weeklyDamage ?? 0));
-    return NextResponse.json({ units, configured: true, fetchedAt: new Date().toISOString() });
-  } catch {
-    return NextResponse.json(
-      { units: [], configured: true, error: "Greska u dohvatu jedinica." },
-      { status: 502 }
-    );
+  if (wareraIds.length) {
+    if (!isConfigured()) {
+      return NextResponse.json({
+        units,
+        configured: false,
+        message: units.length ? null : "War Era API kljuc nije postavljen."
+      });
+    }
+    try {
+      const remote = await getMilitaryUnits(wareraIds);
+      units.push(...remote);
+    } catch {
+      if (!units.length) {
+        return NextResponse.json(
+          { units: [], configured: true, error: "Greska u dohvatu jedinica." },
+          { status: 502 }
+        );
+      }
+    }
   }
+
+  units.sort((a, b) => (b.weeklyDamage ?? 0) - (a.weeklyDamage ?? 0));
+  return NextResponse.json({ units, configured: true, fetchedAt: new Date().toISOString() });
 }
 
-// Admin: dodaj MU rucno ili { discover: true } za automatsko otkrivanje HR/KG jedinica
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
@@ -81,7 +165,6 @@ export async function POST(req: NextRequest) {
           .onConflictDoNothing();
       }
       return NextResponse.json({
-        ok: true,
         found: found.length,
         names: found.map((f) => f.name)
       });
@@ -90,12 +173,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const muId = parseMuId(body.muIdOrUrl ?? "");
+  const raw = (body.muIdOrUrl ?? "").trim();
+  if (raw.toLowerCase() === "testmu" || raw === TEST_MU_ID) {
+    await db
+      .insert(trackedMus)
+      .values({ muId: TEST_MU_ID, label: "TestMU", addedBy: auth.user.callsign })
+      .onConflictDoUpdate({
+        target: trackedMus.muId,
+        set: { label: "TestMU" }
+      });
+    return NextResponse.json({ muId: TEST_MU_ID, label: "TestMU" });
+  }
+
+  const muId = parseMuId(raw);
   if (!muId) {
-    return NextResponse.json(
-      { error: "Unesi MU ID ili link (app.warera.io/mu/...)." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Neispravan MU ID ili link." }, { status: 400 });
   }
 
   await db
@@ -107,13 +199,12 @@ export async function POST(req: NextRequest) {
     })
     .onConflictDoNothing();
 
-  return NextResponse.json({ ok: true, muId });
+  return NextResponse.json({ muId });
 }
 
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-
   const muId = req.nextUrl.searchParams.get("muId");
   if (!muId) return NextResponse.json({ error: "Nedostaje muId." }, { status: 400 });
   await db.delete(trackedMus).where(eq(trackedMus.muId, muId));

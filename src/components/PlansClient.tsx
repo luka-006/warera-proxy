@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Dropdown from "@/components/Dropdown";
 import Help from "@/components/Help";
-import { GEAR_CATALOG, gearIconUrl, gearLabel } from "@/lib/gear";
+import { GEAR_SLOTS, gearIconUrl, gearLabel, gearMeta, RARITIES } from "@/lib/gear";
+import PlacePicker, { type RegionOpt } from "@/components/PlacePicker";
+import { regionToken } from "@/lib/tags";
 import { avatarStyle, initials } from "@/lib/avatar";
 import { RANK_LABEL, rankOutlineClass } from "@/lib/ranks";
 
@@ -82,15 +84,56 @@ function GearIcons({ gear }: { gear: string[] }) {
   return (
     <div className="gear-row">
       <span className="contracts-lbl">Preporucena oprema</span>
-      {gear.map((k) => (
-        <span key={k} className="gear-chip" title={gearLabel(k)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={gearIconUrl(k)} alt={gearLabel(k)} />
-          <span className="gear-name">{gearLabel(k)}</span>
-        </span>
-      ))}
+      {gear.map((k) => {
+        const meta = gearMeta(k);
+        const rarity = RARITIES.find((r) => r.value === meta?.rarity);
+        return (
+          <span
+            key={k}
+            className="gear-chip"
+            title={gearLabel(k)}
+            style={rarity ? { borderColor: rarity.color } : undefined}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={gearIconUrl(k)} alt={gearLabel(k)} />
+            <span className="gear-name">{gearLabel(k)}</span>
+          </span>
+        );
+      })}
     </div>
   );
+}
+
+function RichPlanText({ text }: { text: string }) {
+  const parts: ReactNode[] = [];
+  const re = /(⟦BATTLE\|[^|]+\|[^|]+\|[^\]]+⟧)|(⟦REGION\|[^|]+\|[^|]+\|[^\]]+⟧)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(<span key={`t${last}`}>{text.slice(last, m.index)}</span>);
+    const full = m[0];
+    if (full.startsWith("⟦BATTLE|")) {
+      const bm = /⟦BATTLE\|([^|]+)\|([^|]+)\|([^\]]+)⟧/.exec(full);
+      if (bm)
+        parts.push(
+          <a key={`x${i++}`} href={bm[3]} target="_blank" rel="noreferrer" className="battle-chip">
+            ⚔ {bm[2]}
+          </a>
+        );
+    } else {
+      const rm = /⟦REGION\|([^|]+)\|([^|]+)\|([^\]]+)⟧/.exec(full);
+      if (rm)
+        parts.push(
+          <a key={`x${i++}`} href={rm[3]} target="_blank" rel="noreferrer" className="region-chip">
+            ◎ {rm[2]}
+          </a>
+        );
+    }
+    last = m.index + full.length;
+  }
+  if (last < text.length) parts.push(<span key={`t${last}`}>{text.slice(last)}</span>);
+  return <div className="plan-body">{parts}</div>;
 }
 
 function PlanCard({
@@ -154,7 +197,7 @@ function PlanCard({
         </div>
       )}
 
-      <div className="plan-body">{p.body}</div>
+                <RichPlanText text={p.body} />
 
       {p.expect && (
         <div className="plan-expect">
@@ -295,8 +338,20 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
     setAttackTimes((prev) => prev.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
   }
 
-  function toggleGear(key: string) {
-    setGear((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  function setSlotGear(slot: string, key: string) {
+    setGear((prev) => {
+      const without = prev.filter((k) => gearMeta(k)?.slot !== slot);
+      return key ? [...without, key] : without;
+    });
+  }
+
+  function slotValue(slot: string) {
+    return gear.find((k) => gearMeta(k)?.slot === slot) ?? "";
+  }
+
+  function insertPlace(r: RegionOpt) {
+    const token = regionToken(r.id, r.name, r.link);
+    setBody((t) => `${t}${t && !t.endsWith(" ") && t.length ? " " : ""}${token}`);
   }
 
   async function submit(e: React.FormEvent) {
@@ -459,14 +514,17 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
             </label>
           </div>
           <label className="field">
-            <span className="lbl">Detalji plana</span>
+            <span className="lbl">
+              Detalji plana{" "}
+              <PlacePicker onPick={insertPlace} buttonLabel="Ubaci mjesto" />
+            </span>
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
               required
               maxLength={8000}
               style={{ minHeight: 140 }}
-              placeholder="Sto ce se dogoditi, kako se krecemo, tko ide gdje..."
+              placeholder="Npr. Napadamo u [Mjesto] — sto, tko, kako..."
             />
           </label>
 
@@ -523,23 +581,30 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
 
           <div className="field">
             <span className="lbl">
-              Preporucena oprema <Help text="Oznaci s cime se ide u bitku." />
+              Preporucena oprema{" "}
+              <Help text="Po slotu odaberi rarity (armor) ili oruzje (snajper, tenk, jet...)." />
             </span>
-            <div className="gear-picker">
-              {GEAR_CATALOG.map((g) => (
-                <button
-                  key={g.key}
-                  type="button"
-                  className={`gear-chip pick ${gear.includes(g.key) ? "on" : ""}`}
-                  onClick={() => toggleGear(g.key)}
-                  title={g.label}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={gearIconUrl(g.key)} alt={g.label} />
-                  <span className="gear-name">{g.label}</span>
-                </button>
+            <div className="gear-slots">
+              {GEAR_SLOTS.map((s) => (
+                <label key={s.slot} className="gear-slot">
+                  <span className="lbl">{s.label}</span>
+                  <Dropdown
+                    value={slotValue(s.slot)}
+                    onChange={(v) => setSlotGear(s.slot, v)}
+                    options={[
+                      { value: "", label: "— nema —" },
+                      ...s.options.map((o) => ({
+                        value: o.key,
+                        label: o.label,
+                        color: RARITIES.find((r) => r.value === o.rarity)?.color
+                      }))
+                    ]}
+                    placeholder="—"
+                  />
+                </label>
               ))}
             </div>
+            {gear.length > 0 && <GearIcons gear={gear} />}
           </div>
 
           <div className="phase-builder">

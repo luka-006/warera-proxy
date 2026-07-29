@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Help from "@/components/Help";
+import PlacePicker, { type RegionOpt } from "@/components/PlacePicker";
 import { RANK_SHORT, rankOutlineClass } from "@/lib/ranks";
 import { avatarStyle, initials } from "@/lib/avatar";
 import { flagUrl } from "@/lib/countryColor";
+import { BATTLE_TOKEN_RE, REGION_TOKEN_RE, battleToken, regionToken } from "@/lib/tags";
 
 interface Msg {
   id: string;
@@ -30,44 +32,60 @@ interface BattleOpt {
   defCode?: string;
 }
 
-const BATTLE_RE = /⟦BATTLE\|([^|]+)\|([^|]+)\|([^\]]+)⟧/g;
-
 function MessageBody({ text }: { text: string }) {
   const parts: ReactNode[] = [];
-  let last = 0;
+  let i = 0;
+  const combined = new RegExp(
+    `(${BATTLE_TOKEN_RE.source})|(${REGION_TOKEN_RE.source})|(https?:\\/\\/\\S+)`,
+    "g"
+  );
   let m: RegExpExecArray | null;
-  const re = new RegExp(BATTLE_RE.source, "g");
-  while ((m = re.exec(text)) !== null) {
+  let last = 0;
+  while ((m = combined.exec(text)) !== null) {
     if (m.index > last) parts.push(<span key={`t${last}`}>{text.slice(last, m.index)}</span>);
-    const [, , label, url] = m;
-    parts.push(
-      <a key={`b${m.index}`} href={url} target="_blank" rel="noreferrer" className="battle-chip">
-        ⚔ {label}
-      </a>
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) {
-    const rest = text.slice(last);
-    const urlParts = rest.split(/(https?:\/\/\S+)/g);
-    urlParts.forEach((p, i) => {
-      if (/^https?:\/\/app\.warera\.io\/battle\//.test(p)) {
+    const full = m[0];
+    if (full.startsWith("⟦BATTLE|")) {
+      const bm = /⟦BATTLE\|([^|]+)\|([^|]+)\|([^\]]+)⟧/.exec(full);
+      if (bm) {
         parts.push(
-          <a key={`u${i}`} href={p} target="_blank" rel="noreferrer" className="battle-chip">
-            ⚔ Bitka
+          <a key={`b${i++}`} href={bm[3]} target="_blank" rel="noreferrer" className="battle-chip">
+            ⚔ {bm[2]}
           </a>
         );
-      } else if (/^https?:\/\//.test(p)) {
-        parts.push(
-          <a key={`u${i}`} href={p} target="_blank" rel="noreferrer">
-            {p.replace(/^https?:\/\/(www\.)?/, "").slice(0, 48)}
-          </a>
-        );
-      } else {
-        parts.push(<span key={`u${i}`}>{p}</span>);
       }
-    });
+    } else if (full.startsWith("⟦REGION|")) {
+      const rm = /⟦REGION\|([^|]+)\|([^|]+)\|([^\]]+)⟧/.exec(full);
+      if (rm) {
+        parts.push(
+          <a key={`r${i++}`} href={rm[3]} target="_blank" rel="noreferrer" className="region-chip">
+            ◎ {rm[2]}
+          </a>
+        );
+      }
+    } else if (/^https?:\/\/app\.warera\.io\/battle\//.test(full)) {
+      parts.push(
+        <a key={`u${i++}`} href={full} target="_blank" rel="noreferrer" className="battle-chip">
+          ⚔ Bitka
+        </a>
+      );
+    } else if (/^https?:\/\/app\.warera\.io\/region\//.test(full)) {
+      parts.push(
+        <a key={`u${i++}`} href={full} target="_blank" rel="noreferrer" className="region-chip">
+          ◎ Regija
+        </a>
+      );
+    } else if (/^https?:\/\//.test(full)) {
+      parts.push(
+        <a key={`u${i++}`} href={full} target="_blank" rel="noreferrer">
+          {full.replace(/^https?:\/\/(www\.)?/, "").slice(0, 48)}
+        </a>
+      );
+    } else {
+      parts.push(<span key={`u${i++}`}>{full}</span>);
+    }
+    last = m.index + full.length;
   }
+  if (last < text.length) parts.push(<span key={`t${last}`}>{text.slice(last)}</span>);
   return <>{parts}</>;
 }
 
@@ -113,10 +131,11 @@ function MsgMenu({
         type="button"
         className="msg-more"
         onClick={() => setOpen((v) => !v)}
-        title="Vise"
-        aria-label="Vise"
+        title="Opcije poruke"
+        aria-label="Opcije poruke"
       >
-        ⋮
+        <span aria-hidden>⋮</span>
+        <span className="msg-more-lbl">Opcije</span>
       </button>
       {open && (
         <div className="dd-menu msg-more-menu right reveal">
@@ -237,6 +256,10 @@ export default function ChatClient() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  function insertToken(token: string) {
+    setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${token} `);
+  }
+
   async function send(e: React.FormEvent) {
     e.preventDefault();
     if (!text.trim() || !channelId || sendingLock.current) return;
@@ -304,6 +327,10 @@ export default function ChatClient() {
     }
   }
 
+  function pickPlace(r: RegionOpt) {
+    insertToken(regionToken(r.id, r.name, r.link));
+  }
+
   const pinnedMsgs = messages.filter((m) => m.pinned);
 
   return (
@@ -311,7 +338,7 @@ export default function ChatClient() {
       <div className="section-head">
         <h1>Zapovjedni kanal</h1>
         <div className="head-actions">
-          <Help text="Interni kanal zapovjednistva. ⋮ na poruci: prikvaci ili dodaj u trenutni plan. Bitka ubacuje chip sa zastavama." />
+          <Help text="Bitka i Mjesto ubacuju clickable tagove. Opcije na poruci: prikvaci ili dodaj u trenutni plan." />
           <span className="meta">interno planiranje</span>
         </div>
       </div>
@@ -388,48 +415,50 @@ export default function ChatClient() {
         </div>
 
         <form className="chat-input" onSubmit={send}>
-          <div className="dd" ref={battleMenuRef}>
-            <button
-              type="button"
-              className="btn btn-sm chat-tool"
-              onClick={openBattleMenu}
-              title="Ubaci chip bitke"
-            >
-              ⚔ Bitka
-            </button>
-            {battleMenuOpen && (
-              <div className="dd-menu chat-battle-menu">
-                <div className="dd-title">Ubaci bitku</div>
-                {battles.length === 0 ? (
-                  <div className="dd-empty">Ucitavanje...</div>
-                ) : (
-                  battles.slice(0, 20).map((b) => (
-                    <button
-                      key={b.id}
-                      type="button"
-                      className="dd-item battle-insert"
-                      onClick={() => {
-                        const token = `⟦BATTLE|${b.id}|${b.label}|${b.link}⟧`;
-                        setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${token} `);
-                        setBattleMenuOpen(false);
-                      }}
-                    >
-                      <span className="battle-insert-flags">
-                        <FlagMini code={b.attCode} />
-                        <span className="vs-mini">vs</span>
-                        <FlagMini code={b.defCode} />
-                      </span>
-                      <span className="battle-insert-lbl">{b.label}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
+          <div className="chat-tools">
+            <div className="dd" ref={battleMenuRef}>
+              <button
+                type="button"
+                className="btn btn-sm chat-tool"
+                onClick={openBattleMenu}
+                title="Ubaci chip bitke"
+              >
+                ⚔ Bitka
+              </button>
+              {battleMenuOpen && (
+                <div className="dd-menu chat-battle-menu">
+                  <div className="dd-title">Ubaci bitku</div>
+                  {battles.length === 0 ? (
+                    <div className="dd-empty">Ucitavanje...</div>
+                  ) : (
+                    battles.slice(0, 20).map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        className="dd-item battle-insert"
+                        onClick={() => {
+                          insertToken(battleToken(b.id, b.label, b.link));
+                          setBattleMenuOpen(false);
+                        }}
+                      >
+                        <span className="battle-insert-flags">
+                          <FlagMini code={b.attCode} />
+                          <span className="vs-mini">vs</span>
+                          <FlagMini code={b.defCode} />
+                        </span>
+                        <span className="battle-insert-lbl">{b.label}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <PlacePicker onPick={pickPlace} />
           </div>
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Poruka zapovjednistvu..."
+            placeholder="Npr. Napadamo u [Mjesto] ..."
             maxLength={1000}
           />
           <button className="btn btn-primary" disabled={sending || !channelId}>

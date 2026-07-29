@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { battleAssignments, trackedMus } from "@/db/schema";
+import { battleAssignments, trackedMus, users } from "@/db/schema";
 import { requireActive, requireCommander } from "@/lib/guards";
 import { newId } from "@/lib/ids";
-import { notifyAllActive } from "@/lib/notify";
-import { battleLink } from "@/lib/warera";
+import { notifyAllActive, notifyUsers } from "@/lib/notify";
+import { battleLink, getMilitaryUnit } from "@/lib/warera";
 
 export const runtime = "nodejs";
 
@@ -27,7 +27,7 @@ export async function GET() {
   return NextResponse.json({ assignments: byBattle, units: mus });
 }
 
-// POST { battleId, muId, muName, battleLabel? } — dodijeli jedinicu bitci
+// POST { battleId, muId, muName, battleLabel? } — dodijeli jedinicu bitci + auto-ping
 export async function POST(req: NextRequest) {
   const auth = await requireCommander();
   if ("error" in auth) return auth.error;
@@ -62,21 +62,51 @@ export async function POST(req: NextRequest) {
     userId: auth.user.id
   });
 
-  // Obavijesti sve aktivne igrace u app-u
-  await notifyAllActive(
-    {
-      kind: "assign",
-      title: `${muName} → na bitku`,
-      body: battleLabel
-        ? `${auth.user.callsign} dodijelio ${muName} na: ${battleLabel}`
-        : `${auth.user.callsign} dodijelio ${muName} na bitku`,
-      link: battleLink(battleId),
-      battleId
-    },
-    auth.user.id
-  );
+  const payload = {
+    kind: "assign",
+    title: `ORDER · ${muName} → bitka`,
+    body: battleLabel
+      ? `${auth.user.callsign} dodijelio ${muName} na: ${battleLabel}`
+      : `${auth.user.callsign} dodijelio ${muName} na bitku`,
+    link: battleLink(battleId),
+    battleId
+  };
 
-  return NextResponse.json({ ok: true });
+  // Auto-ping: povezi War Era username (pozivni znak) s app userima
+  const appUsers = await db
+    .select({ id: users.id, callsign: users.callsign })
+    .from(users)
+    .where(eq(users.status, "aktivan"));
+  const byName = new Map(appUsers.map((u) => [u.callsign.toLowerCase(), u.id]));
+
+  let targeted: string[] = [];
+  if (muId === "__testmu__") {
+    targeted = appUsers.map((u) => u.id).filter((id) => id !== auth.user.id);
+  } else {
+    try {
+      const unit = await getMilitaryUnit(muId);
+      if (unit) {
+        const names = [...unit.commanders, ...unit.managers, ...unit.soldiers].map((m) =>
+          m.username.toLowerCase()
+        );
+        targeted = [
+          ...new Set(
+            names.map((n) => byName.get(n)).filter((id): id is string => Boolean(id) && id !== auth.user.id)
+          )
+        ];
+      }
+    } catch {
+      /* fallback ispod */
+    }
+  }
+
+  if (targeted.length) {
+    await notifyUsers(targeted, payload);
+  } else {
+    await notifyAllActive(payload, auth.user.id);
+  }
+
+  return NextResponse.json({ ok: true, pinged: targeted.length || "all" });
 }
 
 // DELETE ?battleId=&muId=

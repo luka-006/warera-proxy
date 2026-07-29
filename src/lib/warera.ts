@@ -142,7 +142,7 @@ async function getCountryMap(): Promise<Map<string, CountryInfo>> {
   return map;
 }
 
-async function getRegionMap(): Promise<Map<string, string>> {
+export async function getRegionMap(): Promise<Map<string, string>> {
   const obj = await trpcGet<Record<string, any>>(
     "region.getRegionsObject",
     undefined,
@@ -432,4 +432,11 @@ export function parseMuId(raw: string): string | null {
   if (!t) return null;
   const m = t.match(/\/mu\/([a-f0-9]{20,})/i) || t.match(/^([a-f0-9]{20,})$/i);
   return m ? m[1] : null;
+}
+
+export async function listRegions(): Promise<{ id: string; name: string; link: string }[]> {
+  const map = await getRegionMap();
+  return [...map.entries()]
+    .map(([id, name]) => ({ id, name, link: regionLink(id) }))
+    .sort((a, b) => a.name.localeCompare(b.name, "hr"));
 }

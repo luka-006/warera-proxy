@@ -491,16 +491,20 @@ function AssignMenu({
   onAssign: (muId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<TrackedUnit | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !pending) return;
     function onDoc(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setPending(null);
+      }
     }
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+  }, [open, pending]);
 
   const available = units.filter((u) => !assigned.some((a) => a.muId === u.muId));
 
@@ -509,7 +513,7 @@ function AssignMenu({
       <button type="button" className="btn btn-sm" onClick={() => setOpen((v) => !v)}>
         + Dodijeli jedinicu
       </button>
-      {open && (
+      {open && !pending && (
         <div className="dd-menu">
           <div className="dd-title">Posalji u ovu bitku</div>
           {available.length === 0 ? (
@@ -520,7 +524,7 @@ function AssignMenu({
                 key={u.muId}
                 className="dd-item"
                 onClick={() => {
-                  onAssign(u.muId);
+                  setPending(u);
                   setOpen(false);
                 }}
               >
@@ -528,6 +532,29 @@ function AssignMenu({
               </button>
             ))
           )}
+        </div>
+      )}
+      {pending && (
+        <div className="dd-menu assign-confirm reveal">
+          <div className="dd-title">Potvrdi dodjelu</div>
+          <div className="dd-empty" style={{ whiteSpace: "normal", lineHeight: 1.4 }}>
+            Dodijeliti <b>{pending.label ?? pending.muId}</b> ovoj bitci?
+            <br />
+            Slanje auto-pinga clanovima.
+          </div>
+          <button
+            type="button"
+            className="dd-item"
+            onClick={() => {
+              onAssign(pending.muId);
+              setPending(null);
+            }}
+          >
+            Potvrdi i pingaj
+          </button>
+          <button type="button" className="dd-item" onClick={() => setPending(null)}>
+            Odustani
+          </button>
         </div>
       )}
     </div>

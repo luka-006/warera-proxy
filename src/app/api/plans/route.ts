@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
   }
 
   const gear = Array.isArray(body.gear)
-    ? (body.gear as unknown[]).map(String).filter((k) => GEAR_KEYS.includes(k)).slice(0, 9)
+    ? (body.gear as unknown[]).map(String).filter((k) => GEAR_KEYS.includes(k)).slice(0, 24)
     : [];
 
   const id = newId();

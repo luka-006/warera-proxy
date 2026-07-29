@@ -162,12 +162,15 @@ export default function Nav({
             </div>
           )}
         </div>
-        <span className="mono">{callsign}</span>
+        <span className="mono callsign-chip" title={callsign}>
+          {callsign}
+        </span>
         {RANK_LABEL[rank] ? (
           <span className={`rank-tag ${rankOutlineClass(rank)}`}>{RANK_LABEL[rank]}</span>
         ) : null}
-        <button className="btn btn-sm" onClick={logout}>
-          Odjava
+        <button className="btn btn-sm logout-btn" onClick={logout} title="Odjava">
+          <span className="logout-full">Odjava</span>
+          <span className="logout-short">⎋</span>
         </button>
       </div>
     </header>

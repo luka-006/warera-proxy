@@ -15,9 +15,9 @@ interface StatusRow {
 }
 
 const CLICKABLE = [
-  { value: "spreman", label: "Spreman", color: "var(--olive-bright)" },
+  { value: "spreman", label: "War mode", color: "var(--olive-bright)" },
   { value: "zauzet", label: "Zauzet", color: "var(--amber)" },
-  { value: "odsutan", label: "Odsutan", color: "var(--ink-faint)" }
+  { value: "odsutan", label: "Eco mode", color: "var(--ink-faint)" }
 ];
 
 const ALL_META = [
@@ -83,7 +83,7 @@ export default function StatusClient({
       <div className="section-head">
         <h1>Status postrojbe</h1>
         <div className="head-actions">
-          <Help text="Oznaci jesi li spreman, zauzet ili odsutan. Debuff app dohvaca automatski i vidi ga samo zapovjednistvo." />
+          <Help text="War mode = spreman za borbu. Eco mode = stednja. Zauzet = zauzet. Popis app korisnika (pozivni znak = War Era username) vidi zapovjednistvo." />
         </div>
       </div>
 
