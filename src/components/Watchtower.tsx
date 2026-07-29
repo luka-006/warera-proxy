@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Dropdown from "@/components/Dropdown";
 import Help from "@/components/Help";
+import { countryColor, flagUrl as countryFlagUrl } from "@/lib/countryColor";
 
 interface MuContract {
   id: string;
@@ -253,18 +254,6 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
     ).catch(() => {});
   }
 
-  async function pingBattle(battle: Battle) {
-    await fetch("/api/ping", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        battleId: battle.id,
-        battleLabel: battle.label,
-        message: `Treba se na: ${battle.label}`
-      })
-    });
-  }
-
   return (
     <div>
       <div className="section-head">
@@ -309,7 +298,6 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
             onSetPin={(prio) => setPin(b, prio)}
             onAssign={(muId) => assign(b.id, muId, b.label)}
             onUnassign={(muId) => unassign(b.id, muId)}
-            onPing={() => pingBattle(b)}
             onNotesChange={(next) => setNotes((prev) => ({ ...prev, [b.id]: next }))}
           />
         ))}
@@ -558,7 +546,6 @@ function BattleCard({
   onSetPin,
   onAssign,
   onUnassign,
-  onPing,
   onNotesChange
 }: {
   battle: Battle;
@@ -572,7 +559,6 @@ function BattleCard({
   onSetPin: (p: number | null) => void;
   onAssign: (muId: string) => void;
   onUnassign: (muId: string) => void;
-  onPing: () => void;
   onNotesChange: (n: Note[]) => void;
 }) {
   const [noteOpen, setNoteOpen] = useState(false);
@@ -695,10 +681,54 @@ function BattleCard({
 
       {open && (
         <div className="battle-detail reveal">
-          <div className="damage-wrap thin">
-            <div className="damage-bar">
-              <div className="att" style={{ width: `${attPct}%` }} />
-              <div className="def" style={{ width: `${100 - attPct}%` }} />
+          <div className="damage-wrap">
+            <div className="damage-sides">
+              <span
+                className="dmg-side att"
+                style={{ color: countryColor(battle.attacker.countryCode, "#5b7c9a") }}
+              >
+                {battle.attacker.countryCode && countryFlagUrl(battle.attacker.countryCode) && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    className="flag xs"
+                    src={countryFlagUrl(battle.attacker.countryCode)!}
+                    alt=""
+                  />
+                )}
+                <b>{battle.attacker.name ?? "Napad"}</b>
+                <em>{att >= 1000 ? `${(att / 1000).toFixed(0)}k` : att}</em>
+              </span>
+              <span
+                className="dmg-side def"
+                style={{ color: countryColor(battle.defender.countryCode, "#6f7a44") }}
+              >
+                <em>{def >= 1000 ? `${(def / 1000).toFixed(0)}k` : def}</em>
+                <b>{battle.defender.name ?? "Obrana"}</b>
+                {battle.defender.countryCode && countryFlagUrl(battle.defender.countryCode) && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    className="flag xs"
+                    src={countryFlagUrl(battle.defender.countryCode)!}
+                    alt=""
+                  />
+                )}
+              </span>
+            </div>
+            <div className="damage-bar tall">
+              <div
+                className="att"
+                style={{
+                  width: `${attPct}%`,
+                  background: countryColor(battle.attacker.countryCode, "#5b7c9a")
+                }}
+              />
+              <div
+                className="def"
+                style={{
+                  width: `${100 - attPct}%`,
+                  background: countryColor(battle.defender.countryCode, "#6f7a44")
+                }}
+              />
             </div>
           </div>
 
@@ -715,17 +745,6 @@ function BattleCard({
               </span>
             )}
             <BountyChips battle={battle} />
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPing();
-              }}
-              title="Posalji ping svim igracima"
-            >
-              ✶ Ping
-            </button>
             <Ext href={battle.link} className="open-battle" title="Otvori bitku u War Era" stop>
               Otvori u War Era
             </Ext>

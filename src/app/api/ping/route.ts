@@ -1,44 +1,112 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireActive } from "@/lib/guards";
-import { notifyAllActive } from "@/lib/notify";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { requireCommander } from "@/lib/guards";
+import { notifyAllActive, notifyUsers } from "@/lib/notify";
 import { battleLink } from "@/lib/warera";
 import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const auth = await requireActive();
+  const auth = await requireCommander();
   if ("error" in auth) return auth.error;
 
-  const rl = rateLimit(`ping:${auth.user.id}`, 4, 60_000);
+  const rl = rateLimit(`ping:${auth.user.id}`, 12, 60_000);
   if (!rl.ok) {
     return NextResponse.json({ error: "Pricekaj minutu prije sljedeceg pinga." }, { status: 429 });
   }
 
-  let body: { battleId?: string; battleLabel?: string; message?: string };
+  let body: {
+    targetUserId?: string;
+    targetCallsign?: string;
+    muId?: string;
+    muName?: string;
+    battleId?: string;
+    battleLabel?: string;
+    message?: string;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Neispravan zahtjev." }, { status: 400 });
   }
 
-  const battleId = (body.battleId ?? "").trim();
-  const label = (body.battleLabel ?? "Bitka").trim().slice(0, 120);
-  if (!battleId) {
-    return NextResponse.json({ error: "Nedostaje bitka." }, { status: 400 });
+  const note = (body.message ?? "").trim().slice(0, 200);
+  const battleId = (body.battleId ?? "").trim() || undefined;
+  const battleLabel = (body.battleLabel ?? "").trim().slice(0, 120);
+  const muName = (body.muName ?? "").trim().slice(0, 80);
+  const targetCallsign = (body.targetCallsign ?? "").trim();
+  const targetUserId = (body.targetUserId ?? "").trim();
+
+  if (targetUserId || targetCallsign) {
+    let uid = targetUserId;
+    let name = targetCallsign;
+    if (!uid && targetCallsign) {
+      const all = await db
+        .select({ id: users.id, callsign: users.callsign })
+        .from(users)
+        .where(eq(users.status, "aktivan"));
+      const found = all.find((u) => u.callsign.toLowerCase() === targetCallsign.toLowerCase());
+      if (found) {
+        uid = found.id;
+        name = found.callsign;
+      }
+    }
+    if (uid) {
+      if (uid === auth.user.id) {
+        return NextResponse.json({ error: "Ne mozes pingati sebe." }, { status: 400 });
+      }
+      await notifyUsers([uid], {
+        kind: "ping",
+        title: "ORDER · " + (name || "ti"),
+        body: note || `${auth.user.callsign} ti salje order`,
+        link: battleId ? battleLink(battleId) : "/jedinice",
+        battleId
+      });
+      return NextResponse.json({ ok: true, mode: "user" });
+    }
+    await notifyAllActive(
+      {
+        kind: "ping",
+        title: "ORDER · " + targetCallsign,
+        body: note || `${auth.user.callsign} pinge ${targetCallsign}`,
+        link: "/jedinice",
+        battleId
+      },
+      auth.user.id
+    );
+    return NextResponse.json({ ok: true, mode: "broadcast-name" });
   }
 
-  const note = (body.message ?? "").trim().slice(0, 200);
-  await notifyAllActive(
-    {
-      kind: "ping",
-      title: "PING · " + label,
-      body: note || (auth.user.callsign + " zove na bitku"),
-      link: battleLink(battleId),
-      battleId
-    },
-    auth.user.id
-  );
+  if (muName || body.muId) {
+    await notifyAllActive(
+      {
+        kind: "ping",
+        title: "ORDER · MU " + (muName || body.muId),
+        body: note || `${auth.user.callsign} salje order jedinici ${muName || body.muId}`,
+        link: "/jedinice",
+        battleId
+      },
+      auth.user.id
+    );
+    return NextResponse.json({ ok: true, mode: "mu" });
+  }
 
-  return NextResponse.json({ ok: true });
+  if (battleId) {
+    await notifyAllActive(
+      {
+        kind: "ping",
+        title: "PING · " + (battleLabel || "Bitka"),
+        body: note || `${auth.user.callsign} zove na bitku`,
+        link: battleLink(battleId),
+        battleId
+      },
+      auth.user.id
+    );
+    return NextResponse.json({ ok: true, mode: "battle" });
+  }
+
+  return NextResponse.json({ error: "Odaberi clana, MU ili bitku." }, { status: 400 });
 }

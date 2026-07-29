@@ -9,13 +9,23 @@ import { GEAR_KEYS } from "@/lib/gear";
 
 export const runtime = "nodejs";
 
-const TYPES = ["zapovijed", "plan"];
+const TYPES = ["trenutni", "buduci", "zapovijed", "plan"];
 const PRIORITIES = ["HITNO", "VISOKO", "NORMALNO", "NISKO"];
 
 export interface PlanPhase {
   title: string;
   when: string;
   body: string;
+}
+
+export interface AttackTime {
+  at: string;
+  label: string;
+}
+
+function normalizeType(t: string): "trenutni" | "buduci" {
+  if (t === "trenutni" || t === "zapovijed") return "trenutni";
+  return "buduci";
 }
 
 function parsePhases(raw: string | null): PlanPhase[] {
@@ -38,6 +48,22 @@ function parseGear(raw: string | null): string[] {
   }
 }
 
+function parseAttackTimes(raw: string | null): AttackTime[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((x) => ({
+        at: String(x?.at ?? "").trim().slice(0, 40),
+        label: String(x?.label ?? "").trim().slice(0, 80)
+      }))
+      .filter((x) => x.at);
+  } catch {
+    return [];
+  }
+}
+
 function sanitizePhases(input: unknown): PlanPhase[] | null {
   if (input === undefined || input === null) return [];
   if (!Array.isArray(input) || input.length > 12) return null;
@@ -48,6 +74,19 @@ function sanitizePhases(input: unknown): PlanPhase[] | null {
     const body = String(p?.body ?? "").trim().slice(0, 1500);
     if (!title && !body) continue;
     out.push({ title, when, body });
+  }
+  return out;
+}
+
+function sanitizeAttackTimes(input: unknown): AttackTime[] | null {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input) || input.length > 12) return null;
+  const out: AttackTime[] = [];
+  for (const p of input) {
+    const at = String(p?.at ?? "").trim().slice(0, 40);
+    const label = String(p?.label ?? "").trim().slice(0, 80);
+    if (!at) continue;
+    out.push({ at, label });
   }
   return out;
 }
@@ -64,6 +103,8 @@ export async function GET() {
       type: plans.type,
       priority: plans.priority,
       phases: plans.phases,
+      expect: plans.expect,
+      attackTimes: plans.attackTimes,
       battleId: plans.battleId,
       battleLabel: plans.battleLabel,
       followsPlanId: plans.followsPlanId,
@@ -78,7 +119,6 @@ export async function GET() {
     .orderBy(desc(plans.createdAt))
     .limit(100);
 
-  // Reakcije za prikazane planove
   const ids = rows.map((r) => r.id);
   const reactions = ids.length
     ? await db
@@ -104,6 +144,9 @@ export async function GET() {
 
   const out = rows.map((r) => ({
     ...r,
+    type: normalizeType(r.type),
+    expect: r.expect ?? "",
+    attackTimes: parseAttackTimes(r.attackTimes),
     phases: parsePhases(r.phases),
     gear: parseGear(r.gear),
     battleLink: r.battleId ? battleLink(r.battleId) : null,
@@ -124,6 +167,8 @@ export async function POST(req: NextRequest) {
     type?: string;
     priority?: string;
     phases?: unknown;
+    expect?: string;
+    attackTimes?: unknown;
     battleId?: string;
     battleLabel?: string;
     followsPlanId?: string;
@@ -137,10 +182,11 @@ export async function POST(req: NextRequest) {
 
   const title = (body.title ?? "").trim();
   const text = (body.body ?? "").trim();
-  const type = TYPES.includes(body.type ?? "") ? (body.type as string) : "zapovijed";
+  const type = normalizeType(TYPES.includes(body.type ?? "") ? (body.type as string) : "buduci");
   const priority = PRIORITIES.includes(body.priority ?? "")
     ? (body.priority as string)
     : "NORMALNO";
+  const expect = (body.expect ?? "").trim().slice(0, 4000) || null;
 
   if (title.length < 2 || title.length > 120) {
     return NextResponse.json({ error: "Naslov 2-120 znakova." }, { status: 400 });
@@ -153,11 +199,14 @@ export async function POST(req: NextRequest) {
   if (phases === null) {
     return NextResponse.json({ error: "Najvise 12 faza." }, { status: 400 });
   }
+  const attackTimes = sanitizeAttackTimes(body.attackTimes);
+  if (attackTimes === null) {
+    return NextResponse.json({ error: "Najvise 12 vremena napada." }, { status: 400 });
+  }
 
   const battleId = (body.battleId ?? "").trim().slice(0, 40) || null;
   const battleLabel = (body.battleLabel ?? "").trim().slice(0, 120) || null;
 
-  // Lanac planova: "ovaj plan je nastavak na..."
   let followsPlanId = (body.followsPlanId ?? "").trim() || null;
   if (followsPlanId) {
     const prev = await db
@@ -175,9 +224,9 @@ export async function POST(req: NextRequest) {
   const id = newId();
   const now = new Date();
 
-  // Postoji samo jedna danasnja zapovijed — stare postaju obicni planovi
-  if (type === "zapovijed") {
-    await db.update(plans).set({ type: "plan" }).where(eq(plans.type, "zapovijed"));
+  if (type === "trenutni") {
+    await db.update(plans).set({ type: "buduci" }).where(eq(plans.type, "trenutni"));
+    await db.update(plans).set({ type: "buduci" }).where(eq(plans.type, "zapovijed"));
   }
 
   await db.insert(plans).values({
@@ -186,6 +235,8 @@ export async function POST(req: NextRequest) {
     body: text,
     type,
     priority,
+    expect,
+    attackTimes: attackTimes.length ? JSON.stringify(attackTimes) : null,
     phases: phases.length ? JSON.stringify(phases) : null,
     battleId,
     battleLabel,
@@ -203,6 +254,8 @@ export async function POST(req: NextRequest) {
       body: text,
       type,
       priority,
+      expect: expect ?? "",
+      attackTimes,
       phases,
       battleId,
       battleLabel,
@@ -217,6 +270,58 @@ export async function POST(req: NextRequest) {
       authorRank: auth.user.rank
     }
   });
+}
+
+/** Dodaj poruku u trenutni plan (iz chata) */
+export async function PATCH(req: NextRequest) {
+  const auth = await requireCommander();
+  if ("error" in auth) return auth.error;
+
+  let body: { appendBody?: string; messageAuthor?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Neispravan zahtjev." }, { status: 400 });
+  }
+
+  const append = (body.appendBody ?? "").trim().slice(0, 2000);
+  if (!append) {
+    return NextResponse.json({ error: "Prazna poruka." }, { status: 400 });
+  }
+
+  const author = (body.messageAuthor ?? "").trim().slice(0, 40);
+  const stamp = new Date().toLocaleString("hr-HR", { dateStyle: "short", timeStyle: "short" });
+  const chunk = `\n\n— ${author || auth.user.callsign} (${stamp}):\n${append}`;
+
+  let rows = await db.select().from(plans).where(eq(plans.type, "trenutni")).limit(1);
+  if (!rows[0]) {
+    rows = await db.select().from(plans).where(eq(plans.type, "zapovijed")).limit(1);
+  }
+
+  const now = new Date();
+  if (!rows[0]) {
+    const id = newId();
+    await db.insert(plans).values({
+      id,
+      title: "Trenutni plan",
+      body: chunk.trim(),
+      type: "trenutni",
+      priority: "NORMALNO",
+      userId: auth.user.id,
+      createdAt: now,
+      updatedAt: now
+    });
+    return NextResponse.json({ ok: true, planId: id, created: true });
+  }
+
+  const plan = rows[0];
+  const nextBody = (plan.body + chunk).slice(0, 8000);
+  await db
+    .update(plans)
+    .set({ body: nextBody, type: "trenutni", updatedAt: now })
+    .where(eq(plans.id, plan.id));
+
+  return NextResponse.json({ ok: true, planId: plan.id, created: false });
 }
 
 export async function DELETE(req: NextRequest) {

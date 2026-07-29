@@ -11,7 +11,7 @@ export default async function StatusPage() {
 
   return (
     <AppShell>
-      <StatusClient myId={user.id} />
+      <StatusClient myId={user.id} myRank={user.rank} />
     </AppShell>
   );
 }

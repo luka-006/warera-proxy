@@ -54,25 +54,54 @@ function fmtDamage(n?: number) {
   return String(n);
 }
 
-function MemberRow({ m }: { m: Member }) {
+function MemberRow({
+  m,
+  canCommand,
+  muName,
+  onPing
+}: {
+  m: Member;
+  canCommand: boolean;
+  muName: string;
+  onPing: (m: Member, muName: string) => void;
+}) {
   return (
-    <a href={m.link} target="_blank" rel="noreferrer" className="member-row">
-      <Avatar url={m.avatarUrl} name={m.username} size={28} />
-      <span className="member-name">{m.username}</span>
-      {m.isCommander && <span className="role-tag">zapovjednik</span>}
-      {m.isManager && !m.isCommander && <span className="role-tag">manager</span>}
-      {m.level !== undefined && <span className="member-meta">Lv {m.level}</span>}
-    </a>
+    <div className="member-row-wrap">
+      <a href={m.link} target="_blank" rel="noreferrer" className="member-row">
+        <Avatar url={m.avatarUrl} name={m.username} size={28} />
+        <span className="member-name">{m.username}</span>
+        {m.isCommander && <span className="role-tag">zapovjednik</span>}
+        {m.isManager && !m.isCommander && <span className="role-tag">manager</span>}
+        {m.level !== undefined && <span className="member-meta">Lv {m.level}</span>}
+      </a>
+      {canCommand && (
+        <button
+          type="button"
+          className="btn btn-sm ping-member"
+          title={`Ping ${m.username}`}
+          onClick={() => onPing(m, muName)}
+        >
+          PING
+        </button>
+      )}
+    </div>
   );
 }
 
-export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) {
+export default function UnitsClient({
+  isAdmin = false,
+  canCommand = false
+}: {
+  isAdmin?: boolean;
+  canCommand?: boolean;
+}) {
   const [units, setUnits] = useState<Unit[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [pinging, setPinging] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,11 +144,48 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
     }
   }
 
+  async function pingMember(m: Member, muName: string) {
+    const key = m.id;
+    setPinging(key);
+    try {
+      const r = await fetch("/api/ping", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          targetCallsign: m.username,
+          message: `Order za ${m.username} (${muName})`
+        })
+      });
+      const d = await r.json().catch(() => ({}));
+      setMessage(r.ok ? `Ping poslan: ${m.username}` : d.error ?? "Ping nije uspio.");
+    } finally {
+      setPinging(null);
+    }
+  }
+
+  async function pingMu(u: Unit) {
+    setPinging(u.id);
+    try {
+      const r = await fetch("/api/ping", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          muId: u.id,
+          muName: u.name,
+          message: `Order za cijelu MU ${u.name}`
+        })
+      });
+      const d = await r.json().catch(() => ({}));
+      setMessage(r.ok ? `Ping poslan MU: ${u.name}` : d.error ?? "Ping nije uspio.");
+    } finally {
+      setPinging(null);
+    }
+  }
+
   const query = q.trim().toLowerCase();
   const visible = query
     ? units.filter((u) => u.name.toLowerCase() === query || u.name.toLowerCase().includes(query))
     : units;
-  // Exact match first when searching full name
   const sorted = query
     ? [...visible].sort((a, b) => {
         const ae = a.name.toLowerCase() === query ? 0 : 1;
@@ -133,7 +199,7 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
       <div className="section-head">
         <h1>Vojne jedinice</h1>
         <div className="head-actions">
-          <Help text="Skeniranje pronalazi jedinice. Pretraga radi po imenu (velika/mala slova svejedno)." />
+          <Help text="PING na clanu ili cijeloj MU salje order obavijest. Skeniranje pronalazi jedinice." />
           {isAdmin && (
             <button className="btn btn-sm" onClick={discover} disabled={discovering}>
               {discovering ? "Skeniram..." : "Skeniraj"}
@@ -188,6 +254,17 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
                   </div>
                 </a>
                 <div className="unit-actions">
+                  {canCommand && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      disabled={pinging === u.id}
+                      onClick={() => pingMu(u)}
+                      title="Ping cijele MU"
+                    >
+                      {pinging === u.id ? "..." : "PING MU"}
+                    </button>
+                  )}
                   <a href={u.link} target="_blank" rel="noreferrer" className="btn btn-sm">
                     War Era
                   </a>
@@ -202,7 +279,13 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
                   <div className="unit-section-lbl">Zapovjednistvo</div>
                   <div className="member-list">
                     {[...u.commanders, ...u.managers].map((m) => (
-                      <MemberRow key={m.id} m={m} />
+                      <MemberRow
+                        key={m.id}
+                        m={m}
+                        canCommand={canCommand}
+                        muName={u.name}
+                        onPing={pingMember}
+                      />
                     ))}
                   </div>
                 </div>
@@ -215,7 +298,15 @@ export default function UnitsClient({ isAdmin = false }: { isAdmin?: boolean }) 
                     {u.soldiers.length === 0 ? (
                       <span className="muted">Nema prikazanih vojnika</span>
                     ) : (
-                      u.soldiers.map((m) => <MemberRow key={m.id} m={m} />)
+                      u.soldiers.map((m) => (
+                        <MemberRow
+                          key={m.id}
+                          m={m}
+                          canCommand={canCommand}
+                          muName={u.name}
+                          onPing={pingMember}
+                        />
+                      ))
                     )}
                   </div>
                 </div>

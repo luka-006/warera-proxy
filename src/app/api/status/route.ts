@@ -2,16 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { playerStatus, users } from "@/db/schema";
-import { requireActive } from "@/lib/guards";
-import { notifyAllActive } from "@/lib/notify";
+import { requireActive, isCommander } from "@/lib/guards";
 
 export const runtime = "nodejs";
 
-const HEALTH = ["spreman", "zauzet", "ozlijeden", "odsutan"];
+const CLICKABLE = ["spreman", "zauzet", "odsutan"];
+const ALL_HEALTH = ["spreman", "zauzet", "debuff", "odsutan", "ozlijeden"];
+
+function normalizeHealth(h: string | null | undefined): string {
+  if (!h) return "spreman";
+  if (h === "ozlijeden") return "debuff";
+  return ALL_HEALTH.includes(h) ? h : "spreman";
+}
 
 export async function GET() {
   const auth = await requireActive();
   if ("error" in auth) return auth.error;
+
+  const cmd = isCommander(auth.user.rank);
 
   const rows = await db
     .select({
@@ -20,64 +28,52 @@ export async function GET() {
       rank: users.rank,
       avatarHue: users.avatarHue,
       health: playerStatus.health,
-      helpMsg: playerStatus.helpMsg,
       updatedAt: playerStatus.updatedAt
     })
     .from(users)
     .leftJoin(playerStatus, eq(users.id, playerStatus.userId))
     .where(eq(users.status, "aktivan"));
 
-  return NextResponse.json({
-    statuses: rows.map((r) => ({
-      ...r,
-      health: r.health ?? "spreman",
-      helpMsg: r.helpMsg ?? null
-    }))
-  });
+  const statuses = rows
+    .filter((r) => cmd || r.userId === auth.user.id)
+    .map((r) => ({
+      userId: r.userId,
+      callsign: r.callsign,
+      rank: r.rank,
+      avatarHue: r.avatarHue,
+      health: normalizeHealth(r.health),
+      updatedAt: r.updatedAt
+    }));
+
+  return NextResponse.json({ statuses, canSeeRoster: cmd });
 }
 
 export async function POST(req: NextRequest) {
   const auth = await requireActive();
   if ("error" in auth) return auth.error;
 
-  let body: { health?: string; helpMsg?: string | null };
+  let body: { health?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Neispravan zahtjev." }, { status: 400 });
   }
 
-  const health = HEALTH.includes(body.health ?? "") ? (body.health as string) : "spreman";
-  const helpMsg =
-    body.helpMsg === null || body.helpMsg === undefined
-      ? null
-      : String(body.helpMsg).trim().slice(0, 160) || null;
-
+  // Debuff nije clickable — app ga prikazuje samo zapovjednistvu
+  const health = CLICKABLE.includes(body.health ?? "") ? (body.health as string) : "spreman";
   const now = new Date();
   await db
     .insert(playerStatus)
     .values({
       userId: auth.user.id,
       health,
-      helpMsg,
+      helpMsg: null,
       updatedAt: now
     })
     .onConflictDoUpdate({
       target: playerStatus.userId,
-      set: { health, helpMsg, updatedAt: now }
+      set: { health, helpMsg: null, updatedAt: now }
     });
 
-  if (helpMsg) {
-    await notifyAllActive(
-      {
-        kind: "help",
-        title: "POMOC · " + auth.user.callsign,
-        body: helpMsg,
-        link: "/status"
-      },
-      auth.user.id
-    );
-  }
-
-  return NextResponse.json({ ok: true, health, helpMsg });
+  return NextResponse.json({ ok: true, health });
 }

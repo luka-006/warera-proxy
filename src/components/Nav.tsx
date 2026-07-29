@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RANK_LABEL, isCommandRank } from "@/lib/ranks";
+import { RANK_LABEL, isCommandRank, rankOutlineClass } from "@/lib/ranks";
 
 interface Notif {
   id: string;
@@ -163,7 +163,9 @@ export default function Nav({
           )}
         </div>
         <span className="mono">{callsign}</span>
-        <span className="rank-tag">{RANK_LABEL[rank] ?? rank}</span>
+        {RANK_LABEL[rank] ? (
+          <span className={`rank-tag ${rankOutlineClass(rank)}`}>{RANK_LABEL[rank]}</span>
+        ) : null}
         <button className="btn btn-sm" onClick={logout}>
           Odjava
         </button>

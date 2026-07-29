@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Help from "@/components/Help";
-import { RANK_SHORT } from "@/lib/ranks";
+import { RANK_SHORT, rankOutlineClass } from "@/lib/ranks";
 import { avatarStyle, initials } from "@/lib/avatar";
+import { flagUrl } from "@/lib/countryColor";
 
 interface Msg {
   id: string;
@@ -14,7 +15,7 @@ interface Msg {
   authorRank: string;
 }
 
-interface Zapovijed {
+interface Trenutni {
   id: string;
   title: string;
   priority: string;
@@ -25,12 +26,14 @@ interface BattleOpt {
   id: string;
   label: string;
   link: string;
+  attCode?: string;
+  defCode?: string;
 }
 
 const BATTLE_RE = /⟦BATTLE\|([^|]+)\|([^|]+)\|([^\]]+)⟧/g;
 
 function MessageBody({ text }: { text: string }) {
-  const parts: React.ReactNode[] = [];
+  const parts: ReactNode[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
   const re = new RegExp(BATTLE_RE.source, "g");
@@ -45,7 +48,6 @@ function MessageBody({ text }: { text: string }) {
     last = m.index + m[0].length;
   }
   if (last < text.length) {
-    // obicni URL-ovi (stare poruke) pretvori u chip ako je warera battle
     const rest = text.slice(last);
     const urlParts = rest.split(/(https?:\/\/\S+)/g);
     urlParts.forEach((p, i) => {
@@ -77,14 +79,82 @@ function AuthorAvatar({ name }: { name: string }) {
   );
 }
 
+function FlagMini({ code }: { code?: string }) {
+  const url = flagUrl(code);
+  if (!url) return null;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img className="flag xs" src={url} alt={code} />;
+}
+
+function MsgMenu({
+  m,
+  onPin,
+  onAddToPlan
+}: {
+  m: Msg;
+  onPin: () => void;
+  onAddToPlan: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <div className="dd msg-menu" ref={ref}>
+      <button
+        type="button"
+        className="msg-more"
+        onClick={() => setOpen((v) => !v)}
+        title="Vise"
+        aria-label="Vise"
+      >
+        ⋮
+      </button>
+      {open && (
+        <div className="dd-menu msg-more-menu right reveal">
+          <button
+            type="button"
+            className="dd-item"
+            onClick={() => {
+              onPin();
+              setOpen(false);
+            }}
+          >
+            {m.pinned ? "Otkvaci" : "Prikvaci"}
+          </button>
+          <button
+            type="button"
+            className="dd-item"
+            onClick={() => {
+              onAddToPlan();
+              setOpen(false);
+            }}
+          >
+            Dodaj u plan
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ChatClient() {
   const [channelId, setChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
-  const [zapovijed, setZapovijed] = useState<Zapovijed | null>(null);
+  const [trenutni, setTrenutni] = useState<Trenutni | null>(null);
   const [battles, setBattles] = useState<BattleOpt[]>([]);
   const [battleMenuOpen, setBattleMenuOpen] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const lastAt = useRef<string | null>(null);
   const sendingLock = useRef(false);
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -101,9 +171,11 @@ export default function ChatClient() {
     fetch("/api/plans")
       .then((r) => r.json())
       .then((d) => {
-        const z = (d.plans ?? []).find((p: { type: string }) => p.type === "zapovijed");
+        const z = (d.plans ?? []).find(
+          (p: { type: string }) => p.type === "trenutni" || p.type === "zapovijed"
+        );
         if (z)
-          setZapovijed({
+          setTrenutni({
             id: z.id,
             title: z.title,
             priority: z.priority,
@@ -202,6 +274,17 @@ export default function ChatClient() {
     }).catch(() => {});
   }
 
+  async function addToPlan(m: Msg) {
+    const r = await fetch("/api/plans", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ appendBody: m.body, messageAuthor: m.author })
+    });
+    const d = await r.json().catch(() => ({}));
+    setToast(r.ok ? "Dodano u trenutni plan" : d.error ?? "Nije uspjelo");
+    setTimeout(() => setToast(null), 2500);
+  }
+
   async function openBattleMenu() {
     setBattleMenuOpen((v) => !v);
     if (!battles.length) {
@@ -209,10 +292,12 @@ export default function ChatClient() {
       if (r?.ok) {
         const d = await r.json();
         setBattles(
-          (d.battles ?? []).map((b: BattleOpt) => ({
+          (d.battles ?? []).map((b: any) => ({
             id: b.id,
             label: b.label,
-            link: b.link
+            link: b.link,
+            attCode: b.attacker?.countryCode,
+            defCode: b.defender?.countryCode
           }))
         );
       }
@@ -226,23 +311,25 @@ export default function ChatClient() {
       <div className="section-head">
         <h1>Zapovjedni kanal</h1>
         <div className="head-actions">
-          <Help text="Interni kanal zapovjednistva. Pin drzi poruku na vrhu. Gumb Bitka ubacuje chip s direktnim linkom — ne sirovi URL." />
+          <Help text="Interni kanal zapovjednistva. ⋮ na poruci: prikvaci ili dodaj u trenutni plan. Bitka ubacuje chip sa zastavama." />
           <span className="meta">interno planiranje</span>
         </div>
       </div>
 
+      {toast && <div className="notice ok">{toast}</div>}
+
       <div className="chat-single">
-        {zapovijed && (
+        {trenutni && (
           <a className="cmd-banner" href="/plan" title="Otvori plan">
-            <span className="cmd-tag">DANASNJA ZAPOVIJED</span>
-            <span className="cmd-title">{zapovijed.title}</span>
-            {zapovijed.battleLink && (
+            <span className="cmd-tag">TRENUTNI PLAN</span>
+            <span className="cmd-title">{trenutni.title}</span>
+            {trenutni.battleLink && (
               <span
                 className="cmd-battle"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  window.open(zapovijed.battleLink!, "_blank");
+                  window.open(trenutni.battleLink!, "_blank");
                 }}
               >
                 ⚔ bitka ↗
@@ -272,12 +359,17 @@ export default function ChatClient() {
             <div className="empty">Nema poruka — zapocni planiranje</div>
           ) : (
             messages.map((m) => (
-              <div className={`msg ${m.pinned ? "is-pinned" : ""}`} key={m.id}>
+              <div
+                className={`msg ${m.pinned ? "is-pinned" : ""} ${rankOutlineClass(m.authorRank)}`}
+                key={m.id}
+              >
                 <div className="head">
                   <AuthorAvatar name={m.author} />
                   <span className="author">
                     {m.author}
-                    <span className="rk">{RANK_SHORT[m.authorRank] ?? ""}</span>
+                    <span className={`rk ${rankOutlineClass(m.authorRank)}`}>
+                      {RANK_SHORT[m.authorRank] ?? ""}
+                    </span>
                   </span>
                   <span className="time">
                     {new Date(m.createdAt).toLocaleTimeString("hr-HR", {
@@ -285,13 +377,7 @@ export default function ChatClient() {
                       minute: "2-digit"
                     })}
                   </span>
-                  <button
-                    className={`msg-pin ${m.pinned ? "on" : ""}`}
-                    onClick={() => togglePin(m)}
-                    title={m.pinned ? "Otkvaci poruku" : "Prikvaci poruku"}
-                  >
-                    📌
-                  </button>
+                  <MsgMenu m={m} onPin={() => togglePin(m)} onAddToPlan={() => addToPlan(m)} />
                 </div>
                 <div className="text">
                   <MessageBody text={m.body} />
@@ -321,14 +407,19 @@ export default function ChatClient() {
                     <button
                       key={b.id}
                       type="button"
-                      className="dd-item"
+                      className="dd-item battle-insert"
                       onClick={() => {
                         const token = `⟦BATTLE|${b.id}|${b.label}|${b.link}⟧`;
                         setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${token} `);
                         setBattleMenuOpen(false);
                       }}
                     >
-                      {b.label}
+                      <span className="battle-insert-flags">
+                        <FlagMini code={b.attCode} />
+                        <span className="vs-mini">vs</span>
+                        <FlagMini code={b.defCode} />
+                      </span>
+                      <span className="battle-insert-lbl">{b.label}</span>
                     </button>
                   ))
                 )}

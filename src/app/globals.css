@@ -2299,3 +2299,238 @@ table.grid tr:hover td {
     width: 100%;
   }
 }
+
+/* —— Help portal (mobitel: uvijek vidljiv) —— */
+.help-portal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(6, 8, 5, 0.55);
+}
+.help-portal-card {
+  width: min(340px, 100%);
+  background: #12160f;
+  border: 1px solid var(--olive);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  padding: 14px 16px 16px;
+}
+.help-portal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--olive-bright);
+}
+.help-portal-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+/* Rang outline — General / Zapovjednik */
+.rank-tag.rank-outline-general,
+.rk.rank-outline-general {
+  border: 1px solid #c9a227;
+  color: #e8c547;
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 39, 0.2);
+}
+.rank-tag.rank-outline-zap,
+.rk.rank-outline-zap {
+  border: 1px solid var(--olive-bright);
+  color: var(--olive-bright);
+  box-shadow: inset 0 0 0 1px rgba(143, 163, 90, 0.2);
+}
+.msg.rank-outline-general,
+.status-row.rank-outline-general,
+.plan-card.rank-outline-general {
+  box-shadow: inset 3px 0 0 #c9a227;
+}
+.msg.rank-outline-zap,
+.status-row.rank-outline-zap,
+.plan-card.rank-outline-zap {
+  box-shadow: inset 3px 0 0 var(--olive-bright);
+}
+
+/* Damage att/def — boje drzava */
+.damage-wrap {
+  padding: 8px 14px 12px;
+}
+.damage-sides {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.dmg-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dmg-side b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 110px;
+}
+.dmg-side em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: 0.9;
+}
+.damage-bar.tall {
+  height: 10px;
+  border-radius: 1px;
+}
+.flag.xs {
+  width: 16px;
+  height: 12px;
+  object-fit: cover;
+  border: 1px solid var(--line-strong);
+  flex: none;
+}
+
+/* Member ping */
+.member-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.member-row-wrap .member-row {
+  flex: 1;
+  min-width: 0;
+}
+.ping-member {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 4px 8px;
+}
+
+/* Chat message ⋮ */
+.msg-more {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.msg-more:hover {
+  color: var(--olive-bright);
+}
+.msg-more-menu {
+  right: 0;
+  left: auto;
+  min-width: 160px;
+}
+.battle-insert {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+.battle-insert-flags {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.vs-mini {
+  font-size: 9px;
+  color: var(--ink-faint);
+  text-transform: lowercase;
+}
+.battle-insert-lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Planovi: trenutni / buduci / prosla bitka */
+.plan-section-lbl {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--olive-bright);
+  margin: 8px 0 10px;
+}
+.type-chip.future {
+  border-color: var(--steel);
+  color: var(--steel);
+}
+.plan-card.is-future {
+  opacity: 0.96;
+}
+.plan-card.past-battle {
+  opacity: 0.48;
+  filter: grayscale(0.75);
+}
+.plan-battle.past {
+  opacity: 0.7;
+}
+.past-tag {
+  margin-left: 6px;
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.plan-expect {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.18);
+}
+.plan-expect-body {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.attack-times {
+  margin: 10px 0;
+}
+.attack-time-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.attack-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid var(--olive);
+  color: var(--olive-bright);
+}
+.attack-chip.past {
+  border-color: var(--line-strong);
+  color: var(--ink-faint);
+  opacity: 0.65;
+}
+.empty.soft {
+  padding: 10px 0 16px;
+  opacity: 0.7;
+}
+.msg .msg-pin {
+  display: none;
+}
+

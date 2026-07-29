@@ -115,8 +115,12 @@ export const plans = sqliteTable(
     id: text("id").primaryKey(),
     title: text("title").notNull(),
     body: text("body").notNull(),
-    // zapovijed | plan | program
-    type: text("type").notNull().default("zapovijed"),
+    // trenutni | buduci (stari: zapovijed|plan)
+    type: text("type").notNull().default("trenutni"),
+    // Sto ocekujemo
+    expect: text("expect"),
+    // JSON: [{ at, label? }]
+    attackTimes: text("attack_times"),
     // HITNO | VISOKO | NORMALNO | NISKO
     priority: text("priority").notNull().default("NORMALNO"),
     // JSON niz faza: [{ title, when, body }]
@@ -217,12 +221,12 @@ export const notifications = sqliteTable(
   })
 );
 
-// Status igraca (spreman / zauzet / ozlijeden / odsutan) + zahtjev za pomoc
+// Status igraca (spreman / zauzet / debuff / odsutan)
 export const playerStatus = sqliteTable("player_status", {
   userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
-  // spreman | zauzet | ozlijeden | odsutan
+  // spreman | zauzet | debuff | odsutan
   health: text("health").notNull().default("spreman"),
   helpMsg: text("help_msg"),
   updatedAt: integer("updated_at", { mode: "timestamp" })

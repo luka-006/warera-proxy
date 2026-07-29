@@ -205,13 +205,13 @@ export default function AdminClient() {
                   </td>
                   <td>
                     {u.rank === "admin" ? (
-                      <span className="rank-tag">Admin</span>
+                      <span className="muted">—</span>
                     ) : (
                       <Dropdown
                         value={u.rank}
                         onChange={(v) => userAction(u.id, "rank", v)}
                         options={[
-                          { value: "visoki", label: "Visoki zapovjednik" },
+                          { value: "visoki", label: "General" },
                           { value: "zapovjednik", label: "Zapovjednik" },
                           { value: "vojnik", label: "Vojnik" }
                         ]}

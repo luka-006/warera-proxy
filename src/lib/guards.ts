@@ -20,7 +20,7 @@ export async function requireActive(): Promise<
   return { user };
 }
 
-// Zapovjedni lanac: admin > visoki zapovjednik > zapovjednik > vojnik
+// Zapovjedni lanac: admin (skriven) > general (visoki) > zapovjednik > vojnik
 export const COMMAND_RANKS = ["admin", "visoki", "zapovjednik"];
 
 export function isCommander(rank: string): boolean {
