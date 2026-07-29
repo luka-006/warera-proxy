@@ -2587,9 +2587,9 @@ table.grid tr:hover td {
 }
 .push-enable {
   position: fixed;
-  bottom: 16px;
-  right: 16px;
-  z-index: 2500;
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  z-index: 9999;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -2600,9 +2600,24 @@ table.grid tr:hover td {
   color: var(--olive-bright);
   cursor: pointer;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .push-enable:hover {
   background: rgba(111, 122, 68, 0.2);
+}
+.notif-enable-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(111, 122, 68, 0.08);
+}
+.notif-enable-row .dd-hint {
+  flex: 1;
+  line-height: 1.35;
 }
 .region-chip {
   display: inline-flex;

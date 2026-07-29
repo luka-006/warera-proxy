@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RANK_LABEL, isCommandRank, rankOutlineClass } from "@/lib/ranks";
+import { useNotifications } from "./NotificationProvider";
 
 interface Notif {
   id: string;
@@ -24,6 +25,7 @@ export default function Nav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { perm, supported, requestPermission } = useNotifications();
   const [unread, setUnread] = useState(0);
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [open, setOpen] = useState(false);
@@ -143,6 +145,25 @@ export default function Nav({
           </button>
           {open && (
             <div className="dd-menu notif-menu right reveal">
+              {supported && perm !== "granted" && (
+                <div className="notif-enable-row">
+                  <span className="dd-hint">
+                    {perm === "denied"
+                      ? "Obavijesti su blokirane u pregledniku"
+                      : "Sistemske obavijesti su isključene"}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      requestPermission();
+                    }}
+                  >
+                    {perm === "denied" ? "Postavke" : "Uključi"}
+                  </button>
+                </div>
+              )}
               <div className="dd-title" style={{ display: "flex", justifyContent: "space-between" }}>
                 <span>Obavijesti</span>
                 {unread > 0 && (

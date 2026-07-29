@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import Nav from "./Nav";
-import NotifyBridge from "./NotifyBridge";
+import NotificationProvider from "./NotificationProvider";
 
 // Server komponenta: cuva rutu, prosljeduje korisnika u shell.
 export default async function AppShell({
@@ -42,10 +42,11 @@ export default async function AppShell({
   if (requireAdmin && user.rank !== "admin") redirect("/");
 
   return (
-    <div className="app-shell">
-      <Nav callsign={user.callsign} rank={user.rank} />
-      <NotifyBridge />
-      <main className="content">{children}</main>
-    </div>
+    <NotificationProvider>
+      <div className="app-shell">
+        <Nav callsign={user.callsign} rank={user.rank} />
+        <main className="content">{children}</main>
+      </div>
+    </NotificationProvider>
   );
 }
