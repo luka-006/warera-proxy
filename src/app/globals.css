@@ -2555,18 +2555,54 @@ table.grid tr:hover td {
   color: var(--ink-faint);
   opacity: 0.65;
 }
-.region-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  margin: 0 2px;
-  border: 1px solid var(--steel);
-  color: var(--steel);
-  background: rgba(120, 140, 160, 0.12);
+.notif-toast {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3000;
+  width: min(420px, calc(100vw - 24px));
+  background: #161b12;
+  border: 1px solid var(--olive-bright);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 12px 36px 12px 14px;
+}
+.notif-toast-title {
+  font-family: var(--mono);
   font-size: 12px;
-  text-decoration: none;
-  vertical-align: baseline;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--olive-bright);
+}
+.notif-toast-body {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.notif-toast .assign-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.push-enable {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 2500;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  background: #161b12;
+  border: 1px solid var(--olive);
+  color: var(--olive-bright);
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+.push-enable:hover {
+  background: rgba(111, 122, 68, 0.2);
 }
 .region-chip:hover {
   background: rgba(120, 140, 160, 0.22);

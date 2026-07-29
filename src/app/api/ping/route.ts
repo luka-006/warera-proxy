@@ -12,8 +12,9 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const auth = await requireCommander();
   if ("error" in auth) return auth.error;
+  const me = auth.user;
 
-  const rl = rateLimit(`ping:${auth.user.id}`, 12, 60_000);
+  const rl = rateLimit(`ping:${me.id}`, 20, 60_000);
   if (!rl.ok) {
     return NextResponse.json({ error: "Pricekaj minutu prije sljedeceg pinga." }, { status: 429 });
   }
@@ -40,6 +41,16 @@ export async function POST(req: NextRequest) {
   const targetCallsign = (body.targetCallsign ?? "").trim();
   const targetUserId = (body.targetUserId ?? "").trim();
 
+  async function ackSender(summary: string) {
+    await notifyUsers([me.id], {
+      kind: "ping-ack",
+      title: "Ping poslan",
+      body: summary,
+      link: "/jedinice",
+      battleId
+    });
+  }
+
   if (targetUserId || targetCallsign) {
     let uid = targetUserId;
     let name = targetCallsign;
@@ -55,56 +66,51 @@ export async function POST(req: NextRequest) {
       }
     }
     if (uid) {
-      if (uid === auth.user.id) {
-        return NextResponse.json({ error: "Ne mozes pingati sebe." }, { status: 400 });
-      }
       await notifyUsers([uid], {
         kind: "ping",
         title: "ORDER · " + (name || "ti"),
-        body: note || `${auth.user.callsign} ti salje order`,
+        body: note || `${me.callsign} ti salje order`,
         link: battleId ? battleLink(battleId) : "/jedinice",
         battleId
       });
-      return NextResponse.json({ ok: true, mode: "user" });
+      if (uid !== me.id) {
+        await ackSender(`Order poslan: ${name}`);
+      }
+      return NextResponse.json({ ok: true, mode: "user", target: name });
     }
     await notifyAllActive(
       {
         kind: "ping",
         title: "ORDER · " + targetCallsign,
-        body: note || `${auth.user.callsign} pinge ${targetCallsign}`,
+        body: note || `${me.callsign} pinge ${targetCallsign}`,
         link: "/jedinice",
         battleId
       },
-      auth.user.id
+      me.id
     );
+    await ackSender(`Broadcast order: ${targetCallsign} (nema app racuna)`);
     return NextResponse.json({ ok: true, mode: "broadcast-name" });
   }
 
   if (muName || body.muId) {
-    await notifyAllActive(
-      {
-        kind: "ping",
-        title: "ORDER · MU " + (muName || body.muId),
-        body: note || `${auth.user.callsign} salje order jedinici ${muName || body.muId}`,
-        link: "/jedinice",
-        battleId
-      },
-      auth.user.id
-    );
+    await notifyAllActive({
+      kind: "ping",
+      title: "ORDER · MU " + (muName || body.muId),
+      body: note || `${me.callsign} salje order jedinici ${muName || body.muId}`,
+      link: "/jedinice",
+      battleId
+    });
     return NextResponse.json({ ok: true, mode: "mu" });
   }
 
   if (battleId) {
-    await notifyAllActive(
-      {
-        kind: "ping",
-        title: "PING · " + (battleLabel || "Bitka"),
-        body: note || `${auth.user.callsign} zove na bitku`,
-        link: battleLink(battleId),
-        battleId
-      },
-      auth.user.id
-    );
+    await notifyAllActive({
+      kind: "ping",
+      title: "PING · " + (battleLabel || "Bitka"),
+      body: note || `${me.callsign} zove na bitku`,
+      link: battleLink(battleId),
+      battleId
+    });
     return NextResponse.json({ ok: true, mode: "battle" });
   }
 

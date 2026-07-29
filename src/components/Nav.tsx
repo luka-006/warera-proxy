@@ -52,8 +52,15 @@ export default function Nav({
 
   useEffect(() => {
     loadNotifs();
-    const t = setInterval(loadNotifs, 20_000);
-    return () => clearInterval(t);
+    const t = setInterval(loadNotifs, 8_000);
+    function onCustom() {
+      loadNotifs();
+    }
+    window.addEventListener("hr-ops-notif", onCustom);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("hr-ops-notif", onCustom);
+    };
   }, [loadNotifs]);
 
   useEffect(() => {
