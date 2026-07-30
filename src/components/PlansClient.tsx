@@ -51,6 +51,7 @@ interface BattleOpt {
 }
 
 type SortMode = "priority" | "date" | "recent";
+type PlanViewTab = "aktivno" | "povijest";
 
 const PRIO_COLOR: Record<string, string> = {
   HITNO: "var(--prio-hitno)",
@@ -177,6 +178,79 @@ function RichPlanText({ text }: { text: string }) {
   }
   if (last < text.length) parts.push(<span key={`t${last}`}>{text.slice(last)}</span>);
   return <div className="plan-body">{parts}</div>;
+}
+
+function PlanTile({
+  p,
+  selected,
+  onSelect,
+  past,
+  avatarMap
+}: {
+  p: Plan;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  past: boolean;
+  avatarMap: Map<string, string>;
+}) {
+  const trenutni = isTrenutni(p);
+  const na = nextAttack(p);
+  return (
+    <button
+      type="button"
+      className={`plan-tile ${selected ? "selected" : ""} ${trenutni ? "current" : ""} ${past ? "past" : ""}`}
+      onClick={() => onSelect(p.id)}
+    >
+      <div className="plan-tile-top">
+        <span className="prio-dot" style={{ background: PRIO_COLOR[p.priority] }} />
+        <span className="plan-tile-type">{trenutni ? "TRENUTNI" : "BUDUCI"}</span>
+        <span className="plan-tile-prio">{p.priority}</span>
+      </div>
+      <div className="plan-tile-title">{p.title}</div>
+      {na && <div className="plan-tile-when">{fmtAt(na.at)}</div>}
+      {p.mus?.length > 0 && (
+        <div className="plan-tile-mus">
+          <MuChipRow mus={p.mus.slice(0, 4)} avatarMap={avatarMap} />
+        </div>
+      )}
+    </button>
+  );
+}
+
+function PlanChain({ plans }: { plans: Plan[] }) {
+  if (plans.length < 2) return null;
+  const byId = new Map(plans.map((p) => [p.id, p]));
+  const ordered: Plan[] = [];
+  const used = new Set<string>();
+  const roots = plans.filter((p) => !p.followsPlanId || !byId.has(p.followsPlanId));
+  for (const root of roots) {
+    let cur: Plan | undefined = root;
+    while (cur && !used.has(cur.id)) {
+      ordered.push(cur);
+      used.add(cur.id);
+      cur = plans.find((p) => p.followsPlanId === cur!.id);
+    }
+  }
+  for (const p of plans) {
+    if (!used.has(p.id)) ordered.push(p);
+  }
+  if (ordered.length < 2) return null;
+  return (
+    <div className="plan-chain">
+      <div className="lbl">Lanac planova</div>
+      <div className="plan-chain-track">
+        {ordered.map((p, i) => (
+          <div key={p.id} className="plan-chain-item">
+            <a href={`#plan-${p.id}`} className={`plan-chain-node ${isTrenutni(p) ? "current" : ""}`}>
+              <span className="prio-dot sm" style={{ background: PRIO_COLOR[p.priority] }} />
+              {p.title}
+            </a>
+            {i < ordered.length - 1 && <span className="plan-chain-arrow">→</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function PlanOverview({
@@ -446,6 +520,8 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
   const [muOptions, setMuOptions] = useState<MuOpt[]>([]);
   const [activeBattleIds, setActiveBattleIds] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortMode>("priority");
+  const [viewTab, setViewTab] = useState<PlanViewTab>("aktivno");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [expect, setExpect] = useState("");
@@ -634,18 +710,59 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
   const trenutniRest = trenutniRaw.slice(1);
   const buduciSorted = sortPlans([...buduciRaw, ...trenutniRest], sort);
 
-  function pastBattle(p: Plan) {
-    if (p.battleId && !activeBattleIds.has(p.battleId)) return true;
-    if (p.attackTimes?.length && p.attackTimes.every((t) => isAttackPast(t.at))) return true;
-    return false;
-  }
+  const pastBattle = useCallback(
+    (p: Plan) => {
+      if (p.battleId && !activeBattleIds.has(p.battleId)) return true;
+      if (p.attackTimes?.length && p.attackTimes.every((t) => isAttackPast(t.at))) return true;
+      return false;
+    },
+    [activeBattleIds]
+  );
+
+  const activePlans = useMemo(() => {
+    const all = currentPlan
+      ? [currentPlan, ...buduciSorted.filter((p) => p.id !== currentPlan.id)]
+      : buduciSorted;
+    return all.filter((p) => !pastBattle(p));
+  }, [currentPlan, buduciSorted, pastBattle]);
+
+  const historyPlans = useMemo(
+    () =>
+      plans
+        .filter((p) => pastBattle(p))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [plans, pastBattle]
+  );
+
+  const selectedPlan =
+    plans.find((p) => p.id === selectedId) ?? activePlans[0] ?? historyPlans[0] ?? null;
+
+  useEffect(() => {
+    if (!selectedId && activePlans[0]) setSelectedId(activePlans[0].id);
+  }, [activePlans, selectedId]);
 
   return (
     <div>
       <div className="section-head">
         <h1>Planovi</h1>
         <div className="head-actions">
-          <Help text="Trenutni plan je aktivan. Buduci se sortiraju po prioritetu, datumu napada ili najnovijem. Dodaj MU na plan i po fazama." />
+          <Help text="Aktivni planovi su pregledni grid. Prosli idu u Veliku Hrvatsku Povijest. MU tagani u planu dobiju auto-ping." />
+          <div className="plan-view-tabs">
+            <button
+              type="button"
+              className={`btn btn-sm ${viewTab === "aktivno" ? "btn-primary" : ""}`}
+              onClick={() => setViewTab("aktivno")}
+            >
+              Aktivno ({activePlans.length})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${viewTab === "povijest" ? "btn-primary" : ""}`}
+              onClick={() => setViewTab("povijest")}
+            >
+              Velika Hrvatska Povijest ({historyPlans.length})
+            </button>
+          </div>
           {canWrite && (
             <button className="btn btn-primary btn-sm" onClick={() => setOpen((v) => !v)}>
               {open ? "Zatvori" : "Nova objava"}
@@ -654,14 +771,29 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
         </div>
       </div>
 
-      {plans.length > 0 && (
-        <PlanOverview
-          current={currentPlan}
-          future={buduciSorted}
-          sort={sort}
-          onSort={setSort}
-          pastBattle={pastBattle}
-        />
+      {viewTab === "aktivno" && activePlans.length > 0 && (
+        <>
+          <PlanOverview
+            current={currentPlan && !pastBattle(currentPlan) ? currentPlan : null}
+            future={activePlans.filter((p) => !isTrenutni(p))}
+            sort={sort}
+            onSort={setSort}
+            pastBattle={pastBattle}
+          />
+          <PlanChain plans={activePlans} />
+          <div className="plan-tile-grid">
+            {activePlans.map((p) => (
+              <PlanTile
+                key={p.id}
+                p={p}
+                selected={selectedPlan?.id === p.id}
+                onSelect={setSelectedId}
+                past={pastBattle(p)}
+                avatarMap={avatarMap}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {canWrite && open && (
@@ -814,47 +946,45 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
 
       {plans.length === 0 ? (
         <div className="empty">Nema objava</div>
-      ) : (
-        <>
-          {currentPlan && (
-            <>
-              <div className="plan-section-lbl">Trenutni plan — detalji</div>
-              <div className="plan-list">
+      ) : viewTab === "aktivno" ? (
+        selectedPlan && !pastBattle(selectedPlan) ? (
+          <div className="plan-list">
+            <div className="plan-section-lbl">Detalji — {selectedPlan.title}</div>
+            <PlanCard
+              p={selectedPlan}
+              plans={plans}
+              canWrite={canWrite}
+              pastBattle={pastBattle(selectedPlan)}
+              avatarMap={avatarMap}
+              onDel={del}
+              onReact={react}
+            />
+          </div>
+        ) : (
+          <div className="empty">Nema aktivnih planova</div>
+        )
+      ) : historyPlans.length > 0 ? (
+        <div className="plan-history">
+          <div className="plan-section-lbl">Arhiva — zavrseni planovi i bitke</div>
+          <div className="plan-history-track">
+            {historyPlans.map((p, i) => (
+              <div key={p.id} className="plan-history-node">
+                <div className="plan-history-marker">{historyPlans.length - i}</div>
                 <PlanCard
-                  p={currentPlan}
+                  p={p}
                   plans={plans}
                   canWrite={canWrite}
-                  pastBattle={pastBattle(currentPlan)}
+                  pastBattle
                   avatarMap={avatarMap}
                   onDel={del}
                   onReact={react}
                 />
               </div>
-            </>
-          )}
-
-          {buduciSorted.length > 0 && (
-            <>
-              <div className="plan-section-lbl" style={{ marginTop: 22 }}>
-                Buduci planovi
-              </div>
-              <div className="plan-list">
-                {buduciSorted.map((p) => (
-                  <PlanCard
-                    key={p.id}
-                    p={p}
-                    plans={plans}
-                    canWrite={canWrite}
-                    pastBattle={pastBattle(p)}
-                    avatarMap={avatarMap}
-                    onDel={del}
-                    onReact={react}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="empty">Povijest je prazna — zavrseni planovi pojavljuju se ovdje</div>
       )}
     </div>
   );

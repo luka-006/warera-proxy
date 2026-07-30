@@ -27,7 +27,11 @@ export function showOsNotification(
   if (typeof window === "undefined" || !("Notification" in window)) return false;
   if (Notification.permission !== "granted") return false;
   try {
-    const note = new Notification(title, { body, tag });
+    const note = new Notification(title, {
+      body,
+      tag,
+      requireInteraction: false
+    });
     note.onclick = () => {
       window.focus();
       if (link?.startsWith("http")) window.open(link, "_blank");
@@ -37,6 +41,29 @@ export function showOsNotification(
     return true;
   } catch {
     return false;
+  }
+}
+
+let audioCtx: AudioContext | null = null;
+
+export function playNotifySound() {
+  if (typeof window === "undefined") return;
+  try {
+    audioCtx ??= new AudioContext();
+    const ctx = audioCtx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880;
+    g.gain.value = 0.0001;
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+    o.stop(ctx.currentTime + 0.36);
+  } catch {
+    /* ignore */
   }
 }
 

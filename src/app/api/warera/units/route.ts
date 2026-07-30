@@ -94,6 +94,21 @@ export async function GET() {
   const tracked = await db.select().from(trackedMus);
   const ids = tracked.map((t) => t.muId);
 
+  if (isConfigured() && tracked.length < 8) {
+    try {
+      const found = await discoverCroatianMus();
+      for (const mu of found) {
+        await db
+          .insert(trackedMus)
+          .values({ muId: mu.id, label: mu.name, addedBy: "auto" })
+          .onConflictDoUpdate({ target: trackedMus.muId, set: { label: mu.name } });
+        if (!ids.includes(mu.id)) ids.push(mu.id);
+      }
+    } catch {
+      /* ignore auto-discover errors */
+    }
+  }
+
   const fromEnv = (process.env.WARERA_MU_IDS ?? "")
     .split(",")
     .map((s) => s.trim())

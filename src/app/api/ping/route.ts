@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { requireCommander } from "@/lib/guards";
+import { resolveAppUserIdsForMu } from "@/lib/mu-resolve";
 import { notifyAllActive, notifyUsers } from "@/lib/notify";
 import { battleLink } from "@/lib/warera";
 import { rateLimit } from "@/lib/ratelimit";
@@ -93,14 +94,26 @@ export async function POST(req: NextRequest) {
   }
 
   if (muName || body.muId) {
-    await notifyAllActive({
+    const muId = (body.muId ?? "").trim();
+    const label = muName || muId;
+    const payload = {
       kind: "ping",
-      title: "ORDER · MU " + (muName || body.muId),
-      body: note || `${me.callsign} salje order jedinici ${muName || body.muId}`,
-      link: "/jedinice",
+      title: "ORDER · MU " + label,
+      body: note || `${me.callsign} salje order jedinici ${label}`,
+      link: battleId ? battleLink(battleId) : "/jedinice",
       battleId
-    });
-    return NextResponse.json({ ok: true, mode: "mu" });
+    };
+    if (muId) {
+      const targeted = await resolveAppUserIdsForMu(muId, me.id);
+      if (targeted.length) {
+        await notifyUsers(targeted, payload);
+        await ackSender(`Order poslan MU ${label} (${targeted.length} clanova)`);
+        return NextResponse.json({ ok: true, mode: "mu", pinged: targeted.length });
+      }
+    }
+    await notifyAllActive(payload, me.id);
+    await ackSender(`Broadcast MU ${label}`);
+    return NextResponse.json({ ok: true, mode: "mu-broadcast" });
   }
 
   if (battleId) {

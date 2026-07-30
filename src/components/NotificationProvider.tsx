@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import {
   getNotifyPermission,
   notifyPermissionMessage,
+  playNotifySound,
   requestNotifyPermission,
   showOsNotification,
   type NotifyPerm
@@ -43,8 +44,24 @@ export default function NotificationProvider({ children }: { children: ReactNode
 
   const showToast = useCallback((t: Toast, ms = 6000) => {
     setToast(t);
+    playNotifySound();
     window.setTimeout(() => setToast(null), ms);
   }, []);
+
+  const pushNotification = useCallback(
+    async (n: { id: string; title: string; body: string | null; link: string | null }) => {
+      seen.current.add(n.id);
+      showToast({ title: n.title, body: n.body ?? "" });
+      showOsNotification(n.title, n.body ?? "Nova obavijest iz HR Ops", n.id, n.link);
+      window.dispatchEvent(new CustomEvent("hr-ops-notif"));
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: n.id })
+      }).catch(() => undefined);
+    },
+    [showToast]
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -105,24 +122,27 @@ export default function NotificationProvider({ children }: { children: ReactNode
       }[] = d.notifications ?? [];
 
       if (!primed.current) {
-        for (const n of list) seen.current.add(n.id);
+        for (const n of list) {
+          if (n.read) seen.current.add(n.id);
+        }
+        const unreadFresh = list.filter((n) => !n.read && !seen.current.has(n.id));
+        for (const n of unreadFresh) {
+          await pushNotification(n);
+        }
         primed.current = true;
         return;
       }
 
       const fresh = list.filter((n) => !n.read && !seen.current.has(n.id));
       for (const n of fresh) {
-        seen.current.add(n.id);
-        showToast({ title: n.title, body: n.body ?? "" });
-        showOsNotification(n.title, n.body ?? "Nova obavijest iz HR Ops", n.id, n.link);
-        window.dispatchEvent(new CustomEvent("hr-ops-notif"));
+        await pushNotification(n);
       }
     }
 
     poll();
-    const t = setInterval(poll, 5_000);
+    const t = setInterval(poll, 3_000);
     return () => clearInterval(t);
-  }, [showToast]);
+  }, [pushNotification]);
 
   const supported = perm !== "unsupported";
   const ctx: NotificationCtx = { perm, supported, requestPermission };

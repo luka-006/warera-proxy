@@ -56,6 +56,15 @@ interface TrackedUnit {
   label: string | null;
 }
 
+interface CountryConfig {
+  croatiaId: string;
+  kyrgyzstanId: string;
+  allianceIds: string[];
+  allianceNames: Record<string, string>;
+}
+
+type CountryFilter = "all" | "hr" | "kg" | "savez";
+
 const PRIO_COLOR: Record<string, string> = {
   HITNO: "var(--prio-hitno)",
   VISOKO: "var(--prio-visoko)",
@@ -131,6 +140,64 @@ function money(n: number) {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toFixed(n < 10 ? 2 : 0);
 }
 
+function battleMatchesCountry(b: Battle, filter: CountryFilter, cfg: CountryConfig | null): boolean {
+  if (filter === "all" || !cfg) return true;
+  const att = b.attacker.countryId ?? "";
+  const def = b.defender.countryId ?? "";
+  if (filter === "hr") return att === cfg.croatiaId || def === cfg.croatiaId;
+  if (filter === "kg") return att === cfg.kyrgyzstanId || def === cfg.kyrgyzstanId;
+  const set = new Set(cfg.allianceIds);
+  return set.has(att) || set.has(def);
+}
+
+function DamageBar({
+  battle,
+  compact = false
+}: {
+  battle: Battle;
+  compact?: boolean;
+}) {
+  const att = battle.attacker.damage ?? 0;
+  const def = battle.defender.damage ?? 0;
+  const total = att + def;
+  const attPct = total > 0 ? Math.round((att / total) * 100) : 50;
+  const defPct = 100 - attPct;
+  const attColor = countryColor(battle.attacker.countryCode, "#5b7c9a");
+  const defColor = countryColor(battle.defender.countryCode, "#6f7a44");
+
+  return (
+    <div className={`damage-wrap ${compact ? "compact" : ""}`}>
+      {!compact && (
+        <div className="damage-sides">
+          <span className="dmg-side att" style={{ color: attColor }}>
+            {battle.attacker.countryCode && countryFlagUrl(battle.attacker.countryCode) && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="flag xs" src={countryFlagUrl(battle.attacker.countryCode)!} alt="" />
+            )}
+            <b>{battle.attacker.name ?? "Napad"}</b>
+            <em>{attPct}%</em>
+          </span>
+          <span className="dmg-side def" style={{ color: defColor }}>
+            <em>{defPct}%</em>
+            <b>{battle.defender.name ?? "Obrana"}</b>
+            {battle.defender.countryCode && countryFlagUrl(battle.defender.countryCode) && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="flag xs" src={countryFlagUrl(battle.defender.countryCode)!} alt="" />
+            )}
+          </span>
+        </div>
+      )}
+      <div className={`damage-bar outlined ${compact ? "mini" : "tall"}`}>
+        <div className="att" style={{ width: `${attPct}%`, background: attColor }} />
+        <div className="def" style={{ width: `${defPct}%`, background: defColor }} />
+        <span className="dmg-center">
+          {attPct}% · {defPct}%
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function Watchtower({ canCommand }: { canCommand: boolean }) {
   const [battles, setBattles] = useState<Battle[]>([]);
   const [notes, setNotes] = useState<Record<string, Note[]>>({});
@@ -141,6 +208,8 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [countryFilter, setCountryFilter] = useState<CountryFilter>("all");
+  const [countries, setCountries] = useState<CountryConfig | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -156,6 +225,7 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
       const aData = aRes.ok ? await aRes.json() : { assignments: {}, units: [] };
       setConfigured(bData.configured !== false);
       setError(bData.error ?? null);
+      setCountries(bData.countries ?? null);
       const list: Battle[] = bData.battles ?? [];
       setBattles(list);
       setAssignments(aData.assignments ?? {});
@@ -192,6 +262,7 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
   const visible = useMemo(() => {
     const query = q.trim().toLowerCase();
     const list = battles.filter((b) => {
+      if (!battleMatchesCountry(b, countryFilter, countries)) return false;
       if (!query) return true;
       const hay = [b.label, b.attacker.name, b.defender.name, b.regionName, ...(notes[b.id] ?? []).map((n) => n.body)]
         .filter(Boolean)
@@ -206,7 +277,7 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
       if (pa !== pb) return pa - pb;
       return (b.totalDamage ?? 0) - (a.totalDamage ?? 0);
     });
-  }, [battles, notes, pins, q]);
+  }, [battles, notes, pins, q, countryFilter, countries]);
 
   async function setPin(battle: Battle, prio: number | null) {
     if (!canCommand) return;
@@ -273,6 +344,33 @@ export default function Watchtower({ canCommand }: { canCommand: boolean }) {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Pretrazi bitku, drzavu, regiju..."
         />
+        <div className="board-filters">
+          {(
+            [
+              ["all", "Sve", null],
+              ["hr", "Hrvatska", "hr"],
+              ["kg", "Kirgistan", "kg"],
+              ["savez", "Savez", null]
+            ] as const
+          ).map(([key, label, code]) => (
+            <button
+              key={key}
+              type="button"
+              className={`filter-chip ${countryFilter === key ? "on" : ""}`}
+              onClick={() => setCountryFilter(key)}
+            >
+              {code && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className="flag xs" src={`https://flagcdn.com/w20/${code}.png`} alt="" />
+              )}
+              {key === "savez" && <span className="filter-ico">🤝</span>}
+              {label}
+              {key === "savez" && countries && (
+                <span className="filter-count">{countries.allianceIds.length}</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {!configured && (
@@ -593,11 +691,6 @@ function BattleCard({
   const [priority, setPriority] = useState("HITNO");
   const [saving, setSaving] = useState(false);
 
-  const att = battle.attacker.damage ?? 0;
-  const def = battle.defender.damage ?? 0;
-  const total = att + def;
-  const attPct = total > 0 ? (att / total) * 100 : 50;
-
   const hasBounty = Boolean(
     battle.attacker.bountyPer1k ||
       battle.attacker.bountyPool ||
@@ -685,6 +778,10 @@ function BattleCard({
           <Flag side={battle.defender} />
         </span>
 
+        <div className="battle-row-dmg" onClick={(e) => e.stopPropagation()}>
+          <DamageBar battle={battle} compact />
+        </div>
+
         <span className="row-tags">
           {assigned.length > 0 && (
             <span className="tag-ind units" title={assigned.map((a) => a.muName).join(", ")}>
@@ -708,56 +805,7 @@ function BattleCard({
 
       {open && (
         <div className="battle-detail reveal">
-          <div className="damage-wrap">
-            <div className="damage-sides">
-              <span
-                className="dmg-side att"
-                style={{ color: countryColor(battle.attacker.countryCode, "#5b7c9a") }}
-              >
-                {battle.attacker.countryCode && countryFlagUrl(battle.attacker.countryCode) && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    className="flag xs"
-                    src={countryFlagUrl(battle.attacker.countryCode)!}
-                    alt=""
-                  />
-                )}
-                <b>{battle.attacker.name ?? "Napad"}</b>
-                <em>{att >= 1000 ? `${(att / 1000).toFixed(0)}k` : att}</em>
-              </span>
-              <span
-                className="dmg-side def"
-                style={{ color: countryColor(battle.defender.countryCode, "#6f7a44") }}
-              >
-                <em>{def >= 1000 ? `${(def / 1000).toFixed(0)}k` : def}</em>
-                <b>{battle.defender.name ?? "Obrana"}</b>
-                {battle.defender.countryCode && countryFlagUrl(battle.defender.countryCode) && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    className="flag xs"
-                    src={countryFlagUrl(battle.defender.countryCode)!}
-                    alt=""
-                  />
-                )}
-              </span>
-            </div>
-            <div className="damage-bar tall">
-              <div
-                className="att"
-                style={{
-                  width: `${attPct}%`,
-                  background: countryColor(battle.attacker.countryCode, "#5b7c9a")
-                }}
-              />
-              <div
-                className="def"
-                style={{
-                  width: `${100 - attPct}%`,
-                  background: countryColor(battle.defender.countryCode, "#6f7a44")
-                }}
-              />
-            </div>
-          </div>
+          <DamageBar battle={battle} />
 
           <div className="detail-meta">
             {battle.regionName && (

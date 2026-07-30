@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { battleAssignments, trackedMus, users } from "@/db/schema";
+import { battleAssignments, trackedMus } from "@/db/schema";
 import { requireActive, requireCommander } from "@/lib/guards";
 import { newId } from "@/lib/ids";
 import { notifyAllActive, notifyUsers } from "@/lib/notify";
-import { battleLink, getMilitaryUnit } from "@/lib/warera";
+import { resolveAppUserIdsForMu } from "@/lib/mu-resolve";
+import { battleLink } from "@/lib/warera";
 
 export const runtime = "nodejs";
 
@@ -72,34 +73,7 @@ export async function POST(req: NextRequest) {
     battleId
   };
 
-  // Auto-ping: povezi War Era username (pozivni znak) s app userima
-  const appUsers = await db
-    .select({ id: users.id, callsign: users.callsign })
-    .from(users)
-    .where(eq(users.status, "aktivan"));
-  const byName = new Map(appUsers.map((u) => [u.callsign.toLowerCase(), u.id]));
-
-  let targeted: string[] = [];
-  if (muId === "__testmu__") {
-    targeted = appUsers.map((u) => u.id).filter((id) => id !== auth.user.id);
-  } else {
-    try {
-      const unit = await getMilitaryUnit(muId);
-      if (unit) {
-        const names = [...unit.commanders, ...unit.managers, ...unit.soldiers].map((m) =>
-          m.username.toLowerCase()
-        );
-        targeted = [
-          ...new Set(
-            names.map((n) => byName.get(n)).filter((id): id is string => Boolean(id) && id !== auth.user.id)
-          )
-        ];
-      }
-    } catch {
-      /* fallback ispod */
-    }
-  }
-
+  const targeted = await resolveAppUserIdsForMu(muId, auth.user.id);
   if (targeted.length) {
     await notifyUsers(targeted, payload);
   } else {

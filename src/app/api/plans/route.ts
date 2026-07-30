@@ -4,6 +4,8 @@ import { db } from "@/db";
 import { planReactions, plans, users } from "@/db/schema";
 import { requireActive, requireCommander } from "@/lib/guards";
 import { newId } from "@/lib/ids";
+import { notifyAllActive, notifyUsers } from "@/lib/notify";
+import { resolveAppUserIdsForMus } from "@/lib/mu-resolve";
 import { battleLink } from "@/lib/warera";
 import { GEAR_KEYS } from "@/lib/gear";
 
@@ -285,6 +287,27 @@ export async function POST(req: NextRequest) {
     createdAt: now,
     updatedAt: now
   });
+
+  const muIds = [
+    ...new Set([
+      ...mus.map((m) => m.muId),
+      ...(phases ?? []).flatMap((ph) => (ph.mus ?? []).map((m) => m.muId))
+    ])
+  ];
+  if (muIds.length) {
+    const targeted = await resolveAppUserIdsForMus(muIds, auth.user.id);
+    const planPayload = {
+      kind: "plan",
+      title: `PLAN · ${title}`,
+      body: `${auth.user.callsign} objavio plan${mus.length ? ` (${mus.map((m) => m.name).join(", ")})` : ""}`,
+      link: `/plan#plan-${id}`
+    };
+    if (targeted.length) {
+      await notifyUsers(targeted, planPayload);
+    } else {
+      await notifyAllActive(planPayload, auth.user.id);
+    }
+  }
 
   return NextResponse.json({
     plan: {

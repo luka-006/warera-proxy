@@ -440,3 +440,69 @@ export async function listRegions(): Promise<{ id: string; name: string; link: s
     .map(([id, name]) => ({ id, name, link: regionLink(id) }))
     .sort((a, b) => a.name.localeCompare(b.name, "hr"));
 }
+
+/** Hrvatska, Kirgistan + saveznici (alliance polje na drzavi ili env lista). */
+export async function getHropsCountryConfig(): Promise<{
+  croatiaId: string;
+  kyrgyzstanId: string;
+  allianceIds: string[];
+  allianceNames: Record<string, string>;
+}> {
+  const croatiaId = CROATIA_COUNTRY_ID;
+  const kyrgyzstanId = KYRGYZSTAN_COUNTRY_ID;
+  const allianceIds = new Set<string>([croatiaId, kyrgyzstanId]);
+  const allianceNames: Record<string, string> = {};
+
+  for (const id of (process.env.WARERA_ALLY_COUNTRY_IDS ?? "").split(",")) {
+    const t = id.trim();
+    if (t) allianceIds.add(t);
+  }
+
+  try {
+    const list = await trpcGet<any[]>("country.getAllCountries", undefined, 5 * 60_000);
+    const byId = new Map<string, any>();
+    for (const c of list ?? []) {
+      if (c?._id) byId.set(String(c._id), c);
+    }
+
+    const seeds = [croatiaId, kyrgyzstanId];
+    const allianceKeys = new Set<string>();
+    for (const sid of seeds) {
+      const c = byId.get(sid);
+      if (!c) continue;
+      allianceNames[sid] = c.name ?? sid;
+      const key = String(c.alliance ?? c.allianceId ?? c.faction ?? "");
+      if (key) allianceKeys.add(key);
+      if (Array.isArray(c.allies)) {
+        for (const a of c.allies) allianceIds.add(String(a));
+      }
+    }
+
+    if (allianceKeys.size) {
+      for (const c of list ?? []) {
+        const id = String(c?._id ?? "");
+        if (!id) continue;
+        const key = String(c.alliance ?? c.allianceId ?? c.faction ?? "");
+        if (key && allianceKeys.has(key)) {
+          allianceIds.add(id);
+          allianceNames[id] = c.name ?? id;
+        }
+      }
+    } else {
+      for (const sid of seeds) {
+        const c = byId.get(sid);
+        if (c?.name) allianceNames[sid] = c.name;
+      }
+    }
+  } catch {
+    allianceNames[croatiaId] = "Hrvatska";
+    allianceNames[kyrgyzstanId] = "Kirgistan";
+  }
+
+  return {
+    croatiaId,
+    kyrgyzstanId,
+    allianceIds: [...allianceIds],
+    allianceNames
+  };
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireActive } from "@/lib/guards";
-import { getActiveBattles, isConfigured, WareraError } from "@/lib/warera";
+import { getActiveBattles, getHropsCountryConfig, isConfigured, WareraError } from "@/lib/warera";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,8 +21,16 @@ export async function GET() {
   }
 
   try {
-    const battles = await getActiveBattles();
-    return NextResponse.json({ battles, configured: true, fetchedAt: new Date().toISOString() });
+    const [battles, countries] = await Promise.all([
+      getActiveBattles(),
+      getHropsCountryConfig().catch(() => null)
+    ]);
+    return NextResponse.json({
+      battles,
+      configured: true,
+      fetchedAt: new Date().toISOString(),
+      countries
+    });
   } catch (e) {
     const status = e instanceof WareraError ? e.status : 502;
     return NextResponse.json(
