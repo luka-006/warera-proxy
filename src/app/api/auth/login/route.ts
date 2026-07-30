@@ -6,13 +6,14 @@ import { users } from "@/db/schema";
 import { normalizeCallsign } from "@/lib/phrase";
 import { createSession } from "@/lib/session";
 import { rateLimit } from "@/lib/ratelimit";
+import { PLAYER_MODES, setPlayerMode, type PlayerMode } from "@/lib/player-mode";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") ?? "local";
 
-  let body: { callsign?: string; secret?: string };
+  let body: { callsign?: string; secret?: string; mode?: string };
   try {
     body = await req.json();
   } catch {
@@ -21,6 +22,10 @@ export async function POST(req: NextRequest) {
 
   const callsign = normalizeCallsign(body.callsign ?? "");
   const secret = body.secret ?? "";
+  const modeRaw = (body.mode ?? "").trim();
+  const loginMode: PlayerMode | null = PLAYER_MODES.includes(modeRaw as PlayerMode)
+    ? (modeRaw as PlayerMode)
+    : null;
 
   const rl = rateLimit(`login:${ip}:${callsign}`, 8, 60_000);
   if (!rl.ok) {
@@ -91,8 +96,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (!loginMode) {
+    return NextResponse.json(
+      { error: "Odaberi War mode ili Eco mode prije prijave." },
+      { status: 400 }
+    );
+  }
+
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+  await setPlayerMode(user.id, loginMode);
   await createSession(user.id);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, mode: loginMode });
 }

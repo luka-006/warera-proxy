@@ -797,7 +797,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
       )}
 
       {canWrite && open && (
-        <form onSubmit={submit} className="panel panel-pad reveal" style={{ marginBottom: 18 }}>
+        <form onSubmit={submit} className="panel panel-pad plan-form-pullup reveal" style={{ marginBottom: 18 }}>
           <label className="field">
             <span className="lbl">Naslov</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={120} />

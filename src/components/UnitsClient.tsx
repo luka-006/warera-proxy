@@ -231,8 +231,16 @@ export default function UnitsClient({
           return (
             <article key={u.id} className={`unit-card ${open ? "open" : ""}`}>
               <div className="unit-head">
-                <a href={u.link} target="_blank" rel="noreferrer" className="unit-brand">
-                  <Avatar url={u.avatarUrl} name={u.name} size={48} />
+                <div className="unit-brand">
+                  <a
+                    href={u.link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mu-logo-btn"
+                    title="Otvori u War Era"
+                  >
+                    <Avatar url={u.avatarUrl} name={u.name} size={48} />
+                  </a>
                   <div className="unit-brand-txt">
                     <div className="unit-name">
                       {u.countryCode && (
@@ -252,7 +260,7 @@ export default function UnitsClient({
                       {dmg ? ` · ${dmg} tjedna steta` : ""}
                     </div>
                   </div>
-                </a>
+                </div>
                 <div className="unit-actions">
                   {canCommand && (
                     <button
@@ -265,9 +273,6 @@ export default function UnitsClient({
                       {pinging === u.id ? "..." : "PING MU"}
                     </button>
                   )}
-                  <a href={u.link} target="_blank" rel="noreferrer" className="btn btn-sm">
-                    War Era
-                  </a>
                   <button className="btn btn-sm" onClick={() => setOpenId(open ? null : u.id)}>
                     {open ? "Sakrij" : "Clanovi"}
                   </button>

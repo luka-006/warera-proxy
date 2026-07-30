@@ -8,18 +8,23 @@ export default function PrijavaPage() {
   const router = useRouter();
   const [callsign, setCallsign] = useState("");
   const [secret, setSecret] = useState("");
+  const [mode, setMode] = useState<"spreman" | "odsutan" | "">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!mode) {
+      setError("Odaberi War mode ili Eco mode.");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ callsign, secret })
+        body: JSON.stringify({ callsign, secret, mode })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -27,7 +32,7 @@ export default function PrijavaPage() {
         return;
       }
       if (data.mustSetPassword) {
-        const params = new URLSearchParams({ callsign, phrase: secret });
+        const params = new URLSearchParams({ callsign, phrase: secret, mode });
         router.push(`/postavi-lozinku?${params.toString()}`);
         return;
       }
@@ -68,6 +73,33 @@ export default function PrijavaPage() {
               onChange={(e) => setSecret(e.target.value)}
               autoComplete="current-password"
             />
+          </label>
+          <label className="field">
+            <span className="lbl">Mod pri prijavi</span>
+            <div className="health-pills" style={{ marginTop: 6 }}>
+              <button
+                type="button"
+                className={`health-pill ${mode === "spreman" ? "on" : ""}`}
+                style={{
+                  color: "var(--olive-bright)",
+                  borderColor: mode === "spreman" ? "var(--olive-bright)" : undefined
+                }}
+                onClick={() => setMode("spreman")}
+              >
+                War mode
+              </button>
+              <button
+                type="button"
+                className={`health-pill ${mode === "odsutan" ? "on" : ""}`}
+                style={{
+                  color: "var(--ink-faint)",
+                  borderColor: mode === "odsutan" ? "var(--ink-faint)" : undefined
+                }}
+                onClick={() => setMode("odsutan")}
+              >
+                Eco mode
+              </button>
+            </div>
           </label>
           <button className="btn btn-primary" style={{ width: "100%" }} disabled={loading}>
             {loading ? "Prijava..." : "Prijavi se"}

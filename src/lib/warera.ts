@@ -312,6 +312,88 @@ export async function getUserLite(userId: string): Promise<any | null> {
   }
 }
 
+/** Kratki cache — live health na status tabu */
+export async function getUserLiteFresh(userId: string): Promise<any | null> {
+  try {
+    return await trpcGet<any>("user.getUserLite", { userId }, 12_000);
+  } catch {
+    return null;
+  }
+}
+
+export interface LiveHealth {
+  current: number;
+  max: number;
+  percent: number;
+  energyCurrent?: number;
+  energyMax?: number;
+  debuff: boolean;
+}
+
+const userIdByName = new Map<string, { id: string; at: number }>();
+const healthByName = new Map<string, { data: LiveHealth; at: number }>();
+
+export function parseLiveHealth(user: any): LiveHealth | null {
+  const h = user?.skills?.health;
+  if (!h) return null;
+  const max = Number(h.total ?? h.value ?? 0);
+  const current = Number(h.currentBarValue ?? max);
+  if (!max || max <= 0) return null;
+  const percent = Math.max(0, Math.min(100, Math.round((current / max) * 100)));
+  const e = user?.skills?.energy;
+  const energyMax = e ? Number(e.total ?? e.value ?? 0) : undefined;
+  const energyCurrent = e ? Number(e.currentBarValue ?? energyMax) : undefined;
+  const debuffPct = Number(user?.skills?.attack?.debuffsPercent ?? 0);
+  return {
+    current: Math.round(current * 10) / 10,
+    max,
+    percent,
+    energyCurrent,
+    energyMax,
+    debuff: percent < 95 || debuffPct > 0
+  };
+}
+
+export async function resolveUserIdByUsername(username: string): Promise<string | null> {
+  const key = username.toLowerCase();
+  const hit = userIdByName.get(key);
+  if (hit && Date.now() - hit.at < 15 * 60_000) return hit.id;
+  try {
+    const data = await trpcGet<any>(
+      "search.searchAnything",
+      { searchText: username, limit: 3 },
+      5 * 60_000
+    );
+    const id = data?.userIds?.[0] ? String(data.userIds[0]) : null;
+    if (id) userIdByName.set(key, { id, at: Date.now() });
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+export async function getLiveHealthByUsername(username: string): Promise<LiveHealth | null> {
+  const key = username.toLowerCase();
+  const hit = healthByName.get(key);
+  if (hit && Date.now() - hit.at < 12_000) return hit.data;
+  const userId = await resolveUserIdByUsername(username);
+  if (!userId) return null;
+  const user = await getUserLiteFresh(userId);
+  const data = user ? parseLiveHealth(user) : null;
+  if (data) healthByName.set(key, { data, at: Date.now() });
+  return data;
+}
+
+export async function getLiveHealthBatch(
+  usernames: string[]
+): Promise<Map<string, LiveHealth | null>> {
+  const out = new Map<string, LiveHealth | null>();
+  await mapLimit(usernames, 6, async (name) => {
+    out.set(name, await getLiveHealthByUsername(name));
+  });
+  return out;
+}
+
 export async function getMuById(muId: string): Promise<any | null> {
   try {
     return await trpcGet<any>("mu.getById", { muId }, 10 * 60_000);

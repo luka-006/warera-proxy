@@ -1,101 +1,126 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Help from "@/components/Help";
 import { RANK_SHORT, rankOutlineClass, isCommandRank } from "@/lib/ranks";
 import { avatarStyle, initials } from "@/lib/avatar";
+
+interface LiveHealth {
+  current: number;
+  max: number;
+  percent: number;
+  debuff: boolean;
+}
 
 interface StatusRow {
   userId: string;
   callsign: string;
   rank: string;
   avatarHue: number | null;
-  health: string;
+  mode: string;
+  modeLabel: string;
+  liveHealth: LiveHealth | null;
   updatedAt: string | number | Date | null;
 }
 
-const CLICKABLE = [
+const MODES = [
   { value: "spreman", label: "War mode", color: "var(--olive-bright)" },
-  { value: "zauzet", label: "Zauzet", color: "var(--amber)" },
   { value: "odsutan", label: "Eco mode", color: "var(--ink-faint)" }
-];
+] as const;
 
-const ALL_META = [
-  ...CLICKABLE,
-  { value: "debuff", label: "Debuff", color: "var(--danger-bright)" }
-];
+type ModeFilter = "all" | "spreman" | "odsutan";
 
-function healthMeta(h: string) {
-  const n = h === "ozlijeden" ? "debuff" : h;
-  return ALL_META.find((o) => o.value === n) ?? CLICKABLE[0];
+function LiveHpBar({ live }: { live: LiveHealth | null }) {
+  if (!live) {
+    return <span className="live-hp unknown">HP n/a</span>;
+  }
+  const color =
+    live.percent >= 80 ? "var(--olive-bright)" : live.percent >= 40 ? "var(--amber)" : "var(--danger-bright)";
+  return (
+    <div className="live-hp">
+      <div className="live-hp-top">
+        <span className="live-dot" />
+        <span className="live-hp-label">LIVE HP</span>
+        <span className="live-hp-val" style={{ color }}>
+          {live.current}/{live.max} ({live.percent}%)
+        </span>
+        {live.debuff && <span className="live-debuff">debuff</span>}
+      </div>
+      <div className="live-hp-bar">
+        <span className="live-hp-fill" style={{ width: `${live.percent}%`, background: color }} />
+      </div>
+    </div>
+  );
 }
 
-export default function StatusClient({
-  myId,
-  myRank
-}: {
-  myId: string;
-  myRank: string;
-}) {
+export default function StatusClient({ myId, myRank }: { myId: string; myRank: string }) {
   const canSeeRoster = isCommandRank(myRank);
   const [rows, setRows] = useState<StatusRow[]>([]);
-  const [health, setHealth] = useState("spreman");
+  const [mode, setMode] = useState("spreman");
+  const [filter, setFilter] = useState<ModeFilter>("all");
+  const [liveOk, setLiveOk] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [lastFetch, setLastFetch] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const r = await fetch("/api/status");
+    const r = await fetch("/api/status", { cache: "no-store" });
     if (!r.ok) return;
     const d = await r.json();
     const list: StatusRow[] = d.statuses ?? [];
     setRows(list);
+    setLiveOk(Boolean(d.live));
+    setLastFetch(d.fetchedAt ?? new Date().toISOString());
     const me = list.find((x) => x.userId === myId);
-    if (me) {
-      const h = me.health === "debuff" || me.health === "ozlijeden" ? "spreman" : me.health;
-      setHealth(CLICKABLE.some((c) => c.value === h) ? h : "spreman");
-    }
+    if (me) setMode(me.mode === "odsutan" ? "odsutan" : "spreman");
   }, [myId]);
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 30_000);
+    const t = setInterval(load, 8_000);
     return () => clearInterval(t);
   }, [load]);
 
-  async function save(nextHealth: string) {
+  async function save(nextMode: string) {
     setSaving(true);
     try {
       await fetch("/api/status", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ health: nextHealth })
+        body: JSON.stringify({ mode: nextMode })
       });
-      setHealth(nextHealth);
+      setMode(nextMode);
       await load();
     } finally {
       setSaving(false);
     }
   }
 
-  const debuffs = rows.filter((r) => r.health === "debuff" || r.health === "ozlijeden");
+  const filtered = useMemo(() => {
+    if (filter === "all") return rows;
+    return rows.filter((r) => r.mode === filter);
+  }, [rows, filter]);
+
+  const debuffs = rows.filter((r) => r.liveHealth?.debuff);
 
   return (
     <div>
       <div className="section-head">
         <h1>Status postrojbe</h1>
         <div className="head-actions">
-          <Help text="War mode = spreman za borbu. Eco mode = stednja. Zauzet = zauzet. Popis app korisnika (pozivni znak = War Era username) vidi zapovjednistvo." />
+          <Help text="War/Eco mode biras pri prijavi i ovdje. LIVE HP dolazi iz War Era (pozivni znak = username). Osvjezava se svakih 8s." />
+          {liveOk && <span className="live-badge">LIVE</span>}
         </div>
       </div>
 
       <div className="panel panel-pad status-mine">
-        <div className="lbl">Moj status</div>
+        <div className="lbl">Moj mod</div>
         <div className="health-pills">
-          {CLICKABLE.map((o) => (
+          {MODES.map((o) => (
             <button
               key={o.value}
               type="button"
-              className={`health-pill ${health === o.value ? "on" : ""}`}
-              style={{ color: o.color, borderColor: health === o.value ? o.color : undefined }}
+              className={`health-pill ${mode === o.value ? "on" : ""}`}
+              style={{ color: o.color, borderColor: mode === o.value ? o.color : undefined }}
               disabled={saving}
               onClick={() => save(o.value)}
             >
@@ -103,11 +128,43 @@ export default function StatusClient({
             </button>
           ))}
         </div>
+        {(() => {
+          const me = rows.find((r) => r.userId === myId);
+          return me ? <LiveHpBar live={me.liveHealth} /> : null;
+        })()}
       </div>
+
+      {canSeeRoster && (
+        <div className="board-toolbar" style={{ marginTop: 14 }}>
+          <div className="board-filters">
+            {(
+              [
+                ["all", "Svi"],
+                ["spreman", "War mode"],
+                ["odsutan", "Eco mode"]
+              ] as const
+            ).map(([k, lbl]) => (
+              <button
+                key={k}
+                type="button"
+                className={`filter-chip ${filter === k ? "on" : ""}`}
+                onClick={() => setFilter(k)}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+          {lastFetch && (
+            <span className="muted" style={{ fontSize: 11 }}>
+              Osvjezeno {new Date(lastFetch).toLocaleTimeString("hr-HR")}
+            </span>
+          )}
+        </div>
+      )}
 
       {canSeeRoster && debuffs.length > 0 && (
         <div className="help-requests reveal">
-          <div className="lbl">Debuff (automatski)</div>
+          <div className="lbl">Debuff (live War Era)</div>
           {debuffs.map((r) => (
             <div key={r.userId} className="help-req">
               <span className="avatar-circle sm" style={avatarStyle(r.callsign, r.avatarHue)}>
@@ -115,7 +172,9 @@ export default function StatusClient({
               </span>
               <div>
                 <b>{r.callsign}</b>
-                <div className="muted">Debuff</div>
+                <div className="muted">
+                  HP {r.liveHealth?.percent ?? "?"}%
+                </div>
               </div>
             </div>
           ))}
@@ -124,28 +183,30 @@ export default function StatusClient({
 
       {canSeeRoster ? (
         <div className="status-list">
-          {rows.map((r) => {
-            const meta = healthMeta(r.health);
-            return (
-              <div key={r.userId} className={`status-row ${rankOutlineClass(r.rank)}`}>
-                <span className="avatar-circle" style={avatarStyle(r.callsign, r.avatarHue)}>
-                  {initials(r.callsign)}
-                </span>
-                <div className="status-info">
-                  <div className="status-name">
-                    {r.callsign}
-                    <span className={`rk ${rankOutlineClass(r.rank)}`}>
-                      {RANK_SHORT[r.rank] ?? ""}
-                    </span>
-                  </div>
+          {filtered.map((r) => (
+            <div key={r.userId} className={`status-row ${rankOutlineClass(r.rank)}`}>
+              <span className="avatar-circle" style={avatarStyle(r.callsign, r.avatarHue)}>
+                {initials(r.callsign)}
+              </span>
+              <div className="status-info">
+                <div className="status-name">
+                  {r.callsign}
+                  <span className={`rk ${rankOutlineClass(r.rank)}`}>{RANK_SHORT[r.rank] ?? ""}</span>
                 </div>
-                <span className="health-tag" style={{ color: meta.color, borderColor: meta.color }}>
-                  {meta.label}
-                </span>
+                <LiveHpBar live={r.liveHealth} />
               </div>
-            );
-          })}
-          {rows.length === 0 && <div className="empty">Nema aktivnih igraca</div>}
+              <span
+                className="health-tag"
+                style={{
+                  color: r.mode === "odsutan" ? "var(--ink-faint)" : "var(--olive-bright)",
+                  borderColor: r.mode === "odsutan" ? "var(--ink-faint)" : "var(--olive-bright)"
+                }}
+              >
+                {r.modeLabel}
+              </span>
+            </div>
+          ))}
+          {filtered.length === 0 && <div className="empty">Nema igraca za filter</div>}
         </div>
       ) : (
         <div className="notice" style={{ marginTop: 14 }}>

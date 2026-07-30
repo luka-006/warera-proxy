@@ -3,17 +3,10 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { playerStatus, users } from "@/db/schema";
 import { requireActive, isCommander } from "@/lib/guards";
+import { modeLabel, normalizeMode, PLAYER_MODES, setPlayerMode, type PlayerMode } from "@/lib/player-mode";
+import { getLiveHealthBatch, isConfigured } from "@/lib/warera";
 
 export const runtime = "nodejs";
-
-const CLICKABLE = ["spreman", "zauzet", "odsutan"];
-const ALL_HEALTH = ["spreman", "zauzet", "debuff", "odsutan", "ozlijeden"];
-
-function normalizeHealth(h: string | null | undefined): string {
-  if (!h) return "spreman";
-  if (h === "ozlijeden") return "debuff";
-  return ALL_HEALTH.includes(h) ? h : "spreman";
-}
 
 export async function GET() {
   const auth = await requireActive();
@@ -34,46 +27,51 @@ export async function GET() {
     .leftJoin(playerStatus, eq(users.id, playerStatus.userId))
     .where(eq(users.status, "aktivan"));
 
-  const statuses = rows
-    .filter((r) => cmd || r.userId === auth.user.id)
-    .map((r) => ({
+  const visible = rows.filter((r) => cmd || r.userId === auth.user.id);
+  const callsigns = visible.map((r) => r.callsign);
+  const liveMap = isConfigured()
+    ? await getLiveHealthBatch(callsigns)
+    : new Map<string, null>();
+
+  const statuses = visible.map((r) => {
+    const mode = normalizeMode(r.health);
+    const live = liveMap.get(r.callsign) ?? null;
+    return {
       userId: r.userId,
       callsign: r.callsign,
       rank: r.rank,
       avatarHue: r.avatarHue,
-      health: normalizeHealth(r.health),
+      mode,
+      modeLabel: modeLabel(mode),
+      liveHealth: live,
       updatedAt: r.updatedAt
-    }));
+    };
+  });
 
-  return NextResponse.json({ statuses, canSeeRoster: cmd });
+  return NextResponse.json({
+    statuses,
+    canSeeRoster: cmd,
+    live: isConfigured(),
+    fetchedAt: new Date().toISOString()
+  });
 }
 
 export async function POST(req: NextRequest) {
   const auth = await requireActive();
   if ("error" in auth) return auth.error;
 
-  let body: { health?: string };
+  let body: { health?: string; mode?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Neispravan zahtjev." }, { status: 400 });
   }
 
-  // Debuff nije clickable — app ga prikazuje samo zapovjednistvu
-  const health = CLICKABLE.includes(body.health ?? "") ? (body.health as string) : "spreman";
-  const now = new Date();
-  await db
-    .insert(playerStatus)
-    .values({
-      userId: auth.user.id,
-      health,
-      helpMsg: null,
-      updatedAt: now
-    })
-    .onConflictDoUpdate({
-      target: playerStatus.userId,
-      set: { health, helpMsg: null, updatedAt: now }
-    });
+  const raw = (body.mode ?? body.health ?? "spreman") as string;
+  const mode: PlayerMode = PLAYER_MODES.includes(raw as PlayerMode)
+    ? (raw as PlayerMode)
+    : "spreman";
+  await setPlayerMode(auth.user.id, mode);
 
-  return NextResponse.json({ ok: true, health });
+  return NextResponse.json({ ok: true, mode, modeLabel: modeLabel(mode) });
 }

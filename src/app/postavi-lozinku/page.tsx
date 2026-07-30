@@ -10,6 +10,9 @@ function SetPasswordForm() {
   const [phrase, setPhrase] = useState(params.get("phrase") ?? "");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [mode, setMode] = useState<"spreman" | "odsutan" | "">(
+    (params.get("mode") as "spreman" | "odsutan" | null) ?? ""
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,12 +23,16 @@ function SetPasswordForm() {
       setError("Lozinke se ne podudaraju.");
       return;
     }
+    if (!mode) {
+      setError("Odaberi War mode ili Eco mode.");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/auth/set-password", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ callsign, phrase, password })
+        body: JSON.stringify({ callsign, phrase, password, mode })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -81,6 +88,33 @@ function SetPasswordForm() {
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="new-password"
             />
+          </label>
+          <label className="field">
+            <span className="lbl">Mod</span>
+            <div className="health-pills" style={{ marginTop: 6 }}>
+              <button
+                type="button"
+                className={`health-pill ${mode === "spreman" ? "on" : ""}`}
+                style={{
+                  color: "var(--olive-bright)",
+                  borderColor: mode === "spreman" ? "var(--olive-bright)" : undefined
+                }}
+                onClick={() => setMode("spreman")}
+              >
+                War mode
+              </button>
+              <button
+                type="button"
+                className={`health-pill ${mode === "odsutan" ? "on" : ""}`}
+                style={{
+                  color: "var(--ink-faint)",
+                  borderColor: mode === "odsutan" ? "var(--ink-faint)" : undefined
+                }}
+                onClick={() => setMode("odsutan")}
+              >
+                Eco mode
+              </button>
+            </div>
           </label>
           <button className="btn btn-primary" style={{ width: "100%" }} disabled={loading}>
             {loading ? "Spremanje..." : "Spremi i udi"}

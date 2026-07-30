@@ -6,6 +6,7 @@ import { users } from "@/db/schema";
 import { normalizeCallsign } from "@/lib/phrase";
 import { createSession } from "@/lib/session";
 import { rateLimit } from "@/lib/ratelimit";
+import { PLAYER_MODES, setPlayerMode, type PlayerMode } from "@/lib/player-mode";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Previse pokusaja." }, { status: 429 });
   }
 
-  let body: { callsign?: string; phrase?: string; password?: string };
+  let body: { callsign?: string; phrase?: string; password?: string; mode?: string };
   try {
     body = await req.json();
   } catch {
@@ -26,6 +27,17 @@ export async function POST(req: NextRequest) {
   const callsign = normalizeCallsign(body.callsign ?? "");
   const phrase = body.phrase ?? "";
   const password = body.password ?? "";
+  const modeRaw = (body.mode ?? "").trim();
+  const loginMode: PlayerMode | null = PLAYER_MODES.includes(modeRaw as PlayerMode)
+    ? (modeRaw as PlayerMode)
+    : null;
+
+  if (!loginMode) {
+    return NextResponse.json(
+      { error: "Odaberi War mode ili Eco mode." },
+      { status: 400 }
+    );
+  }
 
   if (password.length < 8) {
     return NextResponse.json(
@@ -64,7 +76,8 @@ export async function POST(req: NextRequest) {
     .set({ passwordHash, phraseHash: null, lastLoginAt: new Date() })
     .where(eq(users.id, user.id));
 
+  await setPlayerMode(user.id, loginMode);
   await createSession(user.id);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, mode: loginMode });
 }
