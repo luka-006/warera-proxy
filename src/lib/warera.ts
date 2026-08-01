@@ -58,6 +58,8 @@ interface CacheEntry {
   data: unknown;
 }
 const cache = new Map<string, CacheEntry>();
+let discoverCache: { at: number; items: { id: string; name: string }[] } | null = null;
+const DISCOVER_TTL_MS = 15 * 60_000;
 
 async function trpcGet<T>(path: string, input: unknown, ttlMs: number): Promise<T> {
   const key = `${path}:${input ? JSON.stringify(input) : ""}`;
@@ -555,7 +557,15 @@ function discoverCountryIds(): string[] {
  * Otkrij jedinice iz Hrvatske i Kirgistana.
  * API ignorira country filter na paginaciji — skeniramo sve MU-ove i filtriramo po polju country.
  */
-export async function discoverCroatianMus(): Promise<{ id: string; name: string }[]> {
+export async function discoverCroatianMus(force = false): Promise<{ id: string; name: string }[]> {
+  if (
+    !force &&
+    discoverCache &&
+    Date.now() - discoverCache.at < DISCOVER_TTL_MS
+  ) {
+    return discoverCache.items;
+  }
+
   const wanted = new Set(discoverCountryIds());
   const found = new Map<string, string>();
 
@@ -566,31 +576,9 @@ export async function discoverCroatianMus(): Promise<{ id: string; name: string 
     if (id) found.set(id, mu.name ?? "Jedinica");
   }
 
-  // Dodatno: ljestvice (za slucaj da neka jedinica nedostaje u paginaciji)
-  const [total, weekly] = await Promise.all([
-    trpcGet<any>("ranking.getRanking", { rankingType: "muDamages", limit: 2000 }, 10 * 60_000).catch(
-      () => null
-    ),
-    trpcGet<any>(
-      "ranking.getRanking",
-      { rankingType: "muWeeklyDamages", limit: 2000 },
-      10 * 60_000
-    ).catch(() => null)
-  ]);
-  const ranked: any[] = [
-    ...(Array.isArray(total?.items) ? total.items : []),
-    ...(Array.isArray(weekly?.items) ? weekly.items : [])
-  ];
-  const rankedIds = [...new Set(ranked.map((i) => String(i?.mu ?? i?._id ?? "")).filter(Boolean))];
-  await mapLimit(rankedIds, 8, async (id) => {
-    if (found.has(id)) return;
-    const mu = await getMuById(id);
-    if (mu && wanted.has(String(mu.country))) {
-      found.set(id, mu.name ?? "Jedinica");
-    }
-  });
-
-  return [...found.entries()].map(([id, name]) => ({ id, name }));
+  const result = [...found.entries()].map(([id, name]) => ({ id, name }));
+  discoverCache = { at: Date.now(), items: result };
+  return result;
 }
 
 /** Izvuci MU id iz URL-a ili cistog id-a */

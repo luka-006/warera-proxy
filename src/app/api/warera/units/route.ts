@@ -88,13 +88,13 @@ async function buildTestMu(): Promise<MilitaryUnit> {
   };
 }
 
-async function syncDiscoveredMus(): Promise<{ id: string; name: string }[]> {
+async function syncDiscoveredMus(force = false): Promise<{ id: string; name: string }[]> {
   if (!isConfigured()) {
     const tracked = await db.select().from(trackedMus);
     return tracked.map((t) => ({ id: t.muId, name: t.label ?? "Jedinica" }));
   }
 
-  const found = await discoverCroatianMus();
+  const found = await discoverCroatianMus(force);
   for (const mu of found) {
     await db
       .insert(trackedMus)
@@ -107,16 +107,24 @@ async function syncDiscoveredMus(): Promise<{ id: string; name: string }[]> {
   return found;
 }
 
+async function loadCatalog(): Promise<{ id: string; name: string }[]> {
+  const tracked = await db.select().from(trackedMus);
+  if (tracked.length > 0) {
+    return tracked.map((t) => ({ id: t.muId, name: t.label ?? "Jedinica" }));
+  }
+  if (!isConfigured()) return [];
+  return syncDiscoveredMus(true);
+}
+
 export async function GET() {
   const auth = await requireActive();
   if ("error" in auth) return auth.error;
 
   let catalog: { id: string; name: string }[] = [];
   try {
-    catalog = await syncDiscoveredMus();
+    catalog = await loadCatalog();
   } catch {
-    const tracked = await db.select().from(trackedMus);
-    catalog = tracked.map((t) => ({ id: t.muId, name: t.label ?? "Jedinica" }));
+    catalog = [];
   }
 
   const fromEnv = (process.env.WARERA_MU_IDS ?? "")
@@ -199,7 +207,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "API kljuc nije postavljen." }, { status: 400 });
     }
     try {
-      const found = await syncDiscoveredMus();
+      const found = await syncDiscoveredMus(true);
       return NextResponse.json({
         found: found.length,
         names: found.map((f) => f.name).sort((a, b) => a.localeCompare(b, "hr"))

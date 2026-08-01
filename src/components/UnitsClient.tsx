@@ -119,7 +119,12 @@ export default function UnitsClient({
     setLoading(true);
     try {
       const res = await fetch("/api/warera/units");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setUnits([]);
+        setMessage(data.error ?? "Greska u dohvatu jedinica.");
+        return;
+      }
       setUnits(data.units ?? []);
       const total = data.total ?? data.units?.length ?? 0;
       const extra =
