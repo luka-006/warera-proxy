@@ -71,7 +71,18 @@ export const GEAR_SLOTS = [
 ];
 
 export function gearIconUrl(key: string): string {
-  return `https://app.warera.io/images/items/${key}.png`;
+  return gearIconSources(key)[0];
+}
+
+export function gearIconSources(key: string): string[] {
+  const enc = encodeURIComponent(key);
+  return [
+    `https://app.warera.io/images/items/${key}.png`,
+    `https://app.warera.io/images/item/${key}.png`,
+    `https://media.warera.io/images/items/${key}.png`,
+    `https://media.warera.io/items/${key}.png`,
+    `/api/warera/gear-icon?key=${enc}`
+  ];
 }
 
 export function gearLabel(key: string): string {

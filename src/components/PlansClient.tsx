@@ -5,8 +5,10 @@ import Dropdown from "@/components/Dropdown";
 import Help from "@/components/Help";
 import { MuChipRow, MuPicker, type MuOpt, type PlanMu } from "@/components/MuChips";
 import { GearChipRow } from "@/components/GearChips";
+import GearPicker from "@/components/GearPicker";
 import PlacePicker, { type RegionOpt } from "@/components/PlacePicker";
-import { GEAR_SLOTS, gearMeta, RARITIES } from "@/lib/gear";
+import PlanVisual from "@/components/PlanVisual";
+import QuarterHourPicker, { formatQuarterHourShort } from "@/components/QuarterHourPicker";
 import { regionToken } from "@/lib/tags";
 import { avatarStyle, initials } from "@/lib/avatar";
 import { RANK_LABEL, rankOutlineClass } from "@/lib/ranks";
@@ -16,6 +18,7 @@ interface Phase {
   when: string;
   body: string;
   mus?: PlanMu[];
+  region?: { id: string; name: string; link: string };
 }
 
 interface AttackTime {
@@ -75,6 +78,8 @@ function time(d: string | number | Date) {
 }
 
 function fmtAt(at: string) {
+  const short = formatQuarterHourShort(at);
+  if (short) return short;
   const d = new Date(at);
   if (Number.isNaN(d.getTime())) return at;
   return d.toLocaleString("hr-HR", { dateStyle: "short", timeStyle: "short" });
@@ -335,7 +340,8 @@ function PlanCard({
   pastBattle,
   avatarMap,
   onDel,
-  onReact
+  onReact,
+  onVisual
 }: {
   p: Plan;
   plans: Plan[];
@@ -344,6 +350,7 @@ function PlanCard({
   avatarMap: Map<string, string>;
   onDel: (id: string) => void;
   onReact: (plan: Plan, emoji: string) => void;
+  onVisual: (plan: Plan) => void;
 }) {
   const prev = p.followsPlanId ? plans.find((x) => x.id === p.followsPlanId) : null;
   const next = plans.filter((x) => x.followsPlanId === p.id);
@@ -370,6 +377,9 @@ function PlanCard({
           </span>
         )}
         <h2>{p.title}</h2>
+        <button type="button" className="btn btn-sm btn-primary plan-see-btn" onClick={() => onVisual(p)}>
+          Vidi plan
+        </button>
       </div>
 
       {p.mus?.length > 0 && (
@@ -443,7 +453,17 @@ function PlanCard({
               <div className="phase-content">
                 <div className="phase-title">
                   {ph.title || `Faza ${i + 1}`}
-                  {ph.when && <span className="phase-when-chip">{ph.when}</span>}
+                  {ph.when && <span className="phase-when-chip">{fmtAt(ph.when)}</span>}
+                  {ph.region && (
+                    <a
+                      href={ph.region.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="region-chip"
+                    >
+                      {ph.region.name}
+                    </a>
+                  )}
                 </div>
                 {ph.mus && ph.mus.length > 0 && (
                   <MuChipRow mus={ph.mus} avatarMap={avatarMap} />
@@ -515,6 +535,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
   const [attackTimes, setAttackTimes] = useState<AttackTime[]>([]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [visualPlan, setVisualPlan] = useState<Plan | null>(null);
 
   const avatarMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -588,15 +609,18 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
     setAttackTimes((prev) => prev.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
   }
 
-  function setSlotGear(slot: string, key: string) {
-    setGear((prev) => {
-      const without = prev.filter((k) => gearMeta(k)?.slot !== slot);
-      return key ? [...without, key] : without;
-    });
-  }
-
-  function slotValue(slot: string) {
-    return gear.find((k) => gearMeta(k)?.slot === slot) ?? "";
+  function insertPhasePlace(i: number, r: RegionOpt) {
+    setPhases((prev) =>
+      prev.map((p, idx) =>
+        idx === i
+          ? {
+              ...p,
+              region: { id: r.id, name: r.name, link: r.link },
+              body: `${p.body ?? ""}${p.body ? " " : ""}${regionToken(r.id, r.name, r.link)}`
+            }
+          : p
+      )
+    );
   }
 
   function insertPlace(r: RegionOpt) {
@@ -859,7 +883,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
               <div key={i} className="phase-edit reveal attack-edit">
                 <div className="phase-edit-top">
                   <input value={t.label} onChange={(e) => updateAttack(i, { label: e.target.value })} placeholder="Oznaka" maxLength={80} />
-                  <input type="datetime-local" value={t.at} onChange={(e) => updateAttack(i, { at: e.target.value })} className="phase-when" />
+                  <QuarterHourPicker value={t.at} onChange={(v) => updateAttack(i, { at: v })} />
                   <button type="button" className="linkish" onClick={() => setAttackTimes((p) => p.filter((_, idx) => idx !== i))}>ukloni</button>
                 </div>
               </div>
@@ -868,26 +892,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
 
           <div className="field">
             <span className="lbl">Preporucena oprema</span>
-            <div className="gear-slots">
-              {GEAR_SLOTS.map((s) => (
-                <label key={s.slot} className="gear-slot">
-                  <span className="lbl">{s.label}</span>
-                  <Dropdown
-                    value={slotValue(s.slot)}
-                    onChange={(v) => setSlotGear(s.slot, v)}
-                    options={[
-                      { value: "", label: "— nema —" },
-                      ...s.options.map((o) => ({
-                        value: o.key,
-                        label: o.label,
-                        color: RARITIES.find((r) => r.value === o.rarity)?.color
-                      }))
-                    ]}
-                    placeholder="—"
-                  />
-                </label>
-              ))}
-            </div>
+            <GearPicker value={gear} onChange={setGear} />
           </div>
 
           <div className="phase-builder">
@@ -904,9 +909,15 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
                 <div className="phase-edit-top">
                   <span className="phase-num">FAZA {i + 1}</span>
                   <input value={ph.title} onChange={(e) => updatePhase(i, { title: e.target.value })} placeholder="Naziv faze" maxLength={80} />
-                  <input value={ph.when} onChange={(e) => updatePhase(i, { when: e.target.value })} placeholder="Kada" maxLength={60} className="phase-when" />
+                  <QuarterHourPicker value={ph.when} onChange={(v) => updatePhase(i, { when: v })} />
+                  <PlacePicker onPick={(r) => insertPhasePlace(i, r)} buttonLabel="Zona" />
                   <button type="button" className="linkish" onClick={() => setPhases((p) => p.filter((_, idx) => idx !== i))}>ukloni</button>
                 </div>
+                {ph.region && (
+                  <div className="phase-region-pill">
+                    Zona: <a href={ph.region.link} target="_blank" rel="noreferrer">{ph.region.name}</a>
+                  </div>
+                )}
                 <MuPicker
                   selected={ph.mus ?? []}
                   options={muOptions}
@@ -938,6 +949,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
               avatarMap={avatarMap}
               onDel={del}
               onReact={react}
+              onVisual={setVisualPlan}
             />
           </div>
         ) : (
@@ -958,6 +970,7 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
                   avatarMap={avatarMap}
                   onDel={del}
                   onReact={react}
+                  onVisual={setVisualPlan}
                 />
               </div>
             ))}
@@ -965,6 +978,10 @@ export default function PlansClient({ canWrite }: { canWrite: boolean }) {
         </div>
       ) : (
         <div className="empty">Povijest je prazna — zavrseni planovi pojavljuju se ovdje</div>
+      )}
+
+      {visualPlan && (
+        <PlanVisual plan={visualPlan} avatarMap={avatarMap} onClose={() => setVisualPlan(null)} />
       )}
     </div>
   );

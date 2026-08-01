@@ -19,6 +19,7 @@ export interface PlanPhase {
   when: string;
   body: string;
   mus?: { muId: string; name: string }[];
+  region?: { id: string; name: string; link: string };
 }
 
 export interface PlanMu {
@@ -99,6 +100,15 @@ function parseAttackTimes(raw: string | null): AttackTime[] {
   }
 }
 
+function sanitizeRegion(input: unknown): { id: string; name: string; link: string } | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const id = String((input as { id?: unknown }).id ?? "").trim().slice(0, 40);
+  const name = String((input as { name?: unknown }).name ?? "").trim().slice(0, 80);
+  const link = String((input as { link?: unknown }).link ?? "").trim().slice(0, 200);
+  if (!id || !name) return undefined;
+  return { id, name, link: link || `https://app.warera.io/region/${id}` };
+}
+
 function sanitizePhases(input: unknown): PlanPhase[] | null {
   if (input === undefined || input === null) return [];
   if (!Array.isArray(input) || input.length > 12) return null;
@@ -108,8 +118,15 @@ function sanitizePhases(input: unknown): PlanPhase[] | null {
     const when = String(p?.when ?? "").trim().slice(0, 60);
     const body = String(p?.body ?? "").trim().slice(0, 1500);
     const mus = sanitizeMus(p?.mus);
+    const region = sanitizeRegion(p?.region);
     if (!title && !body) continue;
-    out.push({ title, when, body, mus: mus.length ? mus : undefined });
+    out.push({
+      title,
+      when,
+      body,
+      mus: mus.length ? mus : undefined,
+      region
+    });
   }
   return out;
 }
