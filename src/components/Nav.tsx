@@ -124,7 +124,7 @@ export default function Nav({
         {links.map((l) => {
           const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
           return (
-            <Link key={l.href} href={l.href} className={active ? "active" : ""}>
+            <Link key={l.href} href={l.href} prefetch className={active ? "active" : ""}>
               {l.label}
             </Link>
           );
@@ -140,8 +140,12 @@ export default function Nav({
               if (!open) loadNotifs();
             }}
             title="Obavijesti"
+            aria-label="Obavijesti"
           >
-            ✶{unread > 0 && <span className="notif-badge">{unread > 9 ? "9+" : unread}</span>}
+            <span className="notif-bell-icon" aria-hidden>
+              &#128276;
+            </span>
+            {unread > 0 && <span className="notif-badge">{unread > 9 ? "9+" : unread}</span>}
           </button>
           {open && (
             <div className="dd-menu notif-menu right reveal">

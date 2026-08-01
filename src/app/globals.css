@@ -844,10 +844,11 @@ textarea {
   align-items: center;
   gap: 12px;
   color: var(--ink);
-  text-decoration: none;
+  min-width: 0;
 }
-.unit-brand:hover {
-  color: var(--olive-bright);
+.unit-brand-txt {
+  min-width: 0;
+  flex: 1;
 }
 .unit-name {
   font-weight: 600;
@@ -951,7 +952,7 @@ textarea {
 .msg .head {
   display: flex;
   gap: 10px;
-  align-items: baseline;
+  align-items: center;
 }
 .msg .author {
   font-family: var(--mono);
@@ -1569,11 +1570,17 @@ table.grid tr:hover td {
   font-size: 11px;
   color: var(--ink-dim);
 }
-.gear-chip img {
+.gear-chip img,
+.gear-icon {
   width: 20px;
   height: 20px;
   object-fit: contain;
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
 }
 .gear-chip.pick {
   cursor: pointer;
@@ -1810,13 +1817,23 @@ table.grid tr:hover td {
 /* Notifikacije */
 .notif-bell {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
   background: none;
   border: 1px solid var(--line-strong);
   color: var(--ink-dim);
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
   cursor: pointer;
   font-size: 14px;
+  padding: 0;
+}
+.notif-bell-icon {
+  font-size: 16px;
+  line-height: 1;
 }
 .notif-bell.has {
   color: var(--amber);
@@ -2059,12 +2076,15 @@ table.grid tr:hover td {
   }
   .topbar-right {
     margin-left: auto;
-    gap: 8px;
-    max-width: min(58vw, 220px);
+    gap: 6px;
+    max-width: min(62vw, 240px);
     flex-wrap: nowrap;
     justify-content: flex-end;
     align-items: center;
     min-width: 0;
+  }
+  .topbar-right .notif-bell {
+    order: -1;
   }
   .topbar-right .callsign-chip,
   .topbar-right .mono {
@@ -2377,6 +2397,18 @@ table.grid tr:hover td {
 .plan-card.rank-outline-zap {
   box-shadow: inset 3px 0 0 var(--olive-bright);
 }
+.msg.rank-outline-general,
+.msg.rank-outline-zap {
+  box-shadow: none;
+}
+.msg.rank-outline-general .text {
+  border-left: 3px solid #c9a227;
+  padding-left: 10px;
+}
+.msg.rank-outline-zap .text {
+  border-left: 3px solid var(--olive-bright);
+  padding-left: 10px;
+}
 
 /* Damage att/def — boje drzava */
 .damage-wrap {
@@ -2606,6 +2638,57 @@ table.grid tr:hover td {
 .push-enable:hover {
   background: rgba(111, 122, 68, 0.2);
 }
+.notify-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+}
+.notify-prompt-card {
+  width: min(420px, 100%);
+  border: 1px solid var(--olive);
+  background: #121612;
+  padding: 22px 20px 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+.notify-prompt-icon {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: 10px;
+}
+.notify-prompt-card h2 {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--olive-bright);
+}
+.notify-prompt-card p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.notify-prompt-hint {
+  font-size: 12px !important;
+  color: var(--amber) !important;
+}
+.notify-prompt-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.notify-prompt-actions .btn {
+  flex: 1 1 auto;
+  min-width: 140px;
+}
 .notif-enable-row {
   display: flex;
   align-items: center;
@@ -2676,6 +2759,7 @@ table.grid tr:hover td {
   .msg .head {
     flex-wrap: wrap;
     gap: 6px;
+    align-items: center;
   }
   .msg-menu {
     margin-left: auto;
@@ -3199,12 +3283,16 @@ table.grid tr:hover td {
   border-color: var(--olive-bright);
   box-shadow: 0 0 0 2px rgba(111, 122, 68, 0.25);
 }
-.unit-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
+
+.page-loading {
+  padding: 24px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
 }
+
 @keyframes planPullUp {
   from {
     opacity: 0;

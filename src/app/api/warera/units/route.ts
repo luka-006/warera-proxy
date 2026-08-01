@@ -8,6 +8,7 @@ import {
   getMilitaryUnits,
   isConfigured,
   parseMuId,
+  placeholderMilitaryUnit,
   userLink,
   type MilitaryUnit
 } from "@/lib/warera";
@@ -87,33 +88,44 @@ async function buildTestMu(): Promise<MilitaryUnit> {
   };
 }
 
+async function syncDiscoveredMus(): Promise<{ id: string; name: string }[]> {
+  if (!isConfigured()) {
+    const tracked = await db.select().from(trackedMus);
+    return tracked.map((t) => ({ id: t.muId, name: t.label ?? "Jedinica" }));
+  }
+
+  const found = await discoverCroatianMus();
+  for (const mu of found) {
+    await db
+      .insert(trackedMus)
+      .values({ muId: mu.id, label: mu.name, addedBy: "auto" })
+      .onConflictDoUpdate({
+        target: trackedMus.muId,
+        set: { label: mu.name }
+      });
+  }
+  return found;
+}
+
 export async function GET() {
   const auth = await requireActive();
   if ("error" in auth) return auth.error;
 
-  const tracked = await db.select().from(trackedMus);
-  const ids = tracked.map((t) => t.muId);
-
-  if (isConfigured() && tracked.length < 8) {
-    try {
-      const found = await discoverCroatianMus();
-      for (const mu of found) {
-        await db
-          .insert(trackedMus)
-          .values({ muId: mu.id, label: mu.name, addedBy: "auto" })
-          .onConflictDoUpdate({ target: trackedMus.muId, set: { label: mu.name } });
-        if (!ids.includes(mu.id)) ids.push(mu.id);
-      }
-    } catch {
-      /* ignore auto-discover errors */
-    }
+  let catalog: { id: string; name: string }[] = [];
+  try {
+    catalog = await syncDiscoveredMus();
+  } catch {
+    const tracked = await db.select().from(trackedMus);
+    catalog = tracked.map((t) => ({ id: t.muId, name: t.label ?? "Jedinica" }));
   }
 
   const fromEnv = (process.env.WARERA_MU_IDS ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  const allIds = [...new Set([...ids, ...fromEnv])];
+  const catalogIds = catalog.map((c) => c.id);
+  const allIds = [...new Set([...catalogIds, ...fromEnv])];
+  const nameById = new Map(catalog.map((c) => [c.id, c.name]));
 
   const hasTest = allIds.includes(TEST_MU_ID);
   const wareraIds = allIds.filter((id) => id !== TEST_MU_ID);
@@ -141,8 +153,17 @@ export async function GET() {
     }
     try {
       const remote = await getMilitaryUnits(wareraIds);
+      const got = new Set(remote.map((u) => u.id));
+      for (const id of wareraIds) {
+        if (!got.has(id)) {
+          remote.push(placeholderMilitaryUnit(id, nameById.get(id) ?? "Jedinica"));
+        }
+      }
       units.push(...remote);
     } catch {
+      for (const id of wareraIds) {
+        units.push(placeholderMilitaryUnit(id, nameById.get(id) ?? "Jedinica"));
+      }
       if (!units.length) {
         return NextResponse.json(
           { units: [], configured: true, error: "Greska u dohvatu jedinica." },
@@ -153,7 +174,13 @@ export async function GET() {
   }
 
   units.sort((a, b) => (b.weeklyDamage ?? 0) - (a.weeklyDamage ?? 0));
-  return NextResponse.json({ units, configured: true, fetchedAt: new Date().toISOString() });
+  return NextResponse.json({
+    units,
+    configured: true,
+    total: units.length,
+    catalog: catalog.length,
+    fetchedAt: new Date().toISOString()
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -172,16 +199,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "API kljuc nije postavljen." }, { status: 400 });
     }
     try {
-      const found = await discoverCroatianMus();
-      for (const mu of found) {
-        await db
-          .insert(trackedMus)
-          .values({ muId: mu.id, label: mu.name, addedBy: "auto" })
-          .onConflictDoNothing();
-      }
+      const found = await syncDiscoveredMus();
       return NextResponse.json({
         found: found.length,
-        names: found.map((f) => f.name)
+        names: found.map((f) => f.name).sort((a, b) => a.localeCompare(b, "hr"))
       });
     } catch {
       return NextResponse.json({ error: "Otkrivanje nije uspjelo." }, { status: 502 });

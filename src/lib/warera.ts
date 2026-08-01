@@ -422,22 +422,30 @@ function toMember(
 export async function getMilitaryUnit(muId: string): Promise<MilitaryUnit | null> {
   const raw = await getMuById(muId);
   if (!raw) return null;
-  const countries = await getCountryMap().catch(() => new Map<string, CountryInfo>());
-  const cinfo = raw.country ? countries.get(raw.country) : undefined;
+  return buildMilitaryUnit(raw, true);
+}
 
+/** Brzi pregled bez resolveanja clanova (za listu jedinica). */
+export async function getMilitaryUnitLite(muId: string): Promise<MilitaryUnit | null> {
+  const raw = await getMuById(muId);
+  if (!raw) return null;
+  return buildMilitaryUnit(raw, false);
+}
+
+/** Samo clanovi — lazy load kad se otvori kartica. */
+export async function getMilitaryUnitMembers(muId: string): Promise<{
+  commanders: MuMember[];
+  managers: MuMember[];
+  soldiers: MuMember[];
+} | null> {
+  const raw = await getMuById(muId);
+  if (!raw) return null;
   const commanderIds: string[] = raw?.roles?.commanders ?? [];
   const managerIds: string[] = raw?.roles?.managers ?? [];
   const memberIds: string[] = raw?.members ?? [];
-
-  // Resolve up to 40 members for display (commanders first).
-  // Ograniceni paralelizam da API ne odbija zahtjeve; nerazrijesene preskacemo
-  // (inace bi se prikazivali fragmenti ID-a umjesto imena).
-  const priority = [
-    ...new Set([...commanderIds, ...managerIds, ...memberIds])
-  ].slice(0, 40);
-
-  const maybe = await mapLimit(priority, 6, async (id) => {
-    const u = await getUserLite(id);
+  const priority = [...new Set([...commanderIds, ...managerIds, ...memberIds])].slice(0, 80);
+  const maybe = await mapLimit(priority, 8, async (id) => {
+    const u = await getUserLiteFresh(id);
     if (!u?.username) return null;
     return toMember(u, id, {
       commander: commanderIds.includes(id),
@@ -445,10 +453,40 @@ export async function getMilitaryUnit(muId: string): Promise<MilitaryUnit | null
     });
   });
   const resolved = maybe.filter((m): m is MuMember => Boolean(m));
+  return {
+    commanders: resolved.filter((m) => m.isCommander),
+    managers: resolved.filter((m) => m.isManager && !m.isCommander),
+    soldiers: resolved.filter((m) => !m.isCommander && !m.isManager)
+  };
+}
 
-  const commanders = resolved.filter((m) => m.isCommander);
-  const managers = resolved.filter((m) => m.isManager && !m.isCommander);
-  const soldiers = resolved.filter((m) => !m.isCommander && !m.isManager);
+async function buildMilitaryUnit(raw: any, withMembers: boolean): Promise<MilitaryUnit> {
+  const countries = await getCountryMap().catch(() => new Map<string, CountryInfo>());
+  const cinfo = raw.country ? countries.get(raw.country) : undefined;
+
+  const commanderIds: string[] = raw?.roles?.commanders ?? [];
+  const managerIds: string[] = raw?.roles?.managers ?? [];
+  const memberIds: string[] = raw?.members ?? [];
+
+  let commanders: MuMember[] = [];
+  let managers: MuMember[] = [];
+  let soldiers: MuMember[] = [];
+
+  if (withMembers) {
+    const priority = [...new Set([...commanderIds, ...managerIds, ...memberIds])].slice(0, 80);
+    const maybe = await mapLimit(priority, 8, async (id) => {
+      const u = await getUserLiteFresh(id);
+      if (!u?.username) return null;
+      return toMember(u, id, {
+        commander: commanderIds.includes(id),
+        manager: managerIds.includes(id)
+      });
+    });
+    const resolved = maybe.filter((m): m is MuMember => Boolean(m));
+    commanders = resolved.filter((m) => m.isCommander);
+    managers = resolved.filter((m) => m.isManager && !m.isCommander);
+    soldiers = resolved.filter((m) => !m.isCommander && !m.isManager);
+  }
 
   return {
     id: raw._id,
@@ -468,44 +506,91 @@ export async function getMilitaryUnit(muId: string): Promise<MilitaryUnit | null
   };
 }
 
-export async function getMilitaryUnits(muIds: string[]): Promise<MilitaryUnit[]> {
-  const units = await Promise.all(muIds.map((id) => getMilitaryUnit(id)));
+export async function getMilitaryUnits(muIds: string[], lite = true): Promise<MilitaryUnit[]> {
+  const fn = lite ? getMilitaryUnitLite : getMilitaryUnit;
+  const units = await mapLimit(muIds, 5, async (id) => fn(id));
   return units.filter((u): u is MilitaryUnit => Boolean(u));
 }
 
+export function placeholderMilitaryUnit(muId: string, name: string): MilitaryUnit {
+  return {
+    id: muId,
+    name,
+    link: muLink(muId),
+    memberCount: 0,
+    commanders: [],
+    managers: [],
+    soldiers: []
+  };
+}
+
+/** Dohvati sve MU jedinice iz War Era API-ja (cursor paginacija). */
+async function fetchAllMusFromApi(): Promise<any[]> {
+  const all: any[] = [];
+  let cursor: string | undefined;
+  for (let guard = 0; guard < 200; guard++) {
+    const input: { limit: number; cursor?: string } = { limit: 100 };
+    if (cursor) input.cursor = cursor;
+    const data = await trpcGet<any>("mu.getManyPaginated", input, 10 * 60_000).catch(() => null);
+    if (!data) break;
+    const items: any[] = data?.items ?? [];
+    all.push(...items);
+    const next = typeof data?.nextCursor === "string" ? data.nextCursor : undefined;
+    if (!next || items.length === 0) break;
+    cursor = next;
+  }
+  return all;
+}
+
+function discoverCountryIds(): string[] {
+  const fromEnv = (process.env.WARERA_MU_DISCOVER_COUNTRY_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (fromEnv.length) return fromEnv;
+  return [CROATIA_COUNTRY_ID, KYRGYZSTAN_COUNTRY_ID];
+}
+
 /**
- * Otkrij jedinice iz Hrvatske i Kirgistana (proxy drzava).
- * Skenira top ljestvicu tjedne stete i filtrira po drzavi.
+ * Otkrij jedinice iz Hrvatske i Kirgistana.
+ * API ignorira country filter na paginaciji — skeniramo sve MU-ove i filtriramo po polju country.
  */
 export async function discoverCroatianMus(): Promise<{ id: string; name: string }[]> {
-  // Ukupna + tjedna ljestvica pokrivaju i stare i nove jedinice
+  const wanted = new Set(discoverCountryIds());
+  const found = new Map<string, string>();
+
+  const all = await fetchAllMusFromApi();
+  for (const mu of all) {
+    if (!wanted.has(String(mu?.country ?? ""))) continue;
+    const id = String(mu?._id ?? "");
+    if (id) found.set(id, mu.name ?? "Jedinica");
+  }
+
+  // Dodatno: ljestvice (za slucaj da neka jedinica nedostaje u paginaciji)
   const [total, weekly] = await Promise.all([
+    trpcGet<any>("ranking.getRanking", { rankingType: "muDamages", limit: 2000 }, 10 * 60_000).catch(
+      () => null
+    ),
     trpcGet<any>(
       "ranking.getRanking",
-      { rankingType: "muDamages", limit: 1000 },
-      10 * 60_000
-    ).catch(() => null),
-    trpcGet<any>(
-      "ranking.getRanking",
-      { rankingType: "muWeeklyDamages", limit: 500 },
+      { rankingType: "muWeeklyDamages", limit: 2000 },
       10 * 60_000
     ).catch(() => null)
   ]);
-  const items: any[] = [
+  const ranked: any[] = [
     ...(Array.isArray(total?.items) ? total.items : []),
     ...(Array.isArray(weekly?.items) ? weekly.items : [])
   ];
-  const muIds = [...new Set(items.map((i) => String(i?.mu ?? i?._id ?? "")).filter(Boolean))];
-
-  const wanted = new Set([CROATIA_COUNTRY_ID, KYRGYZSTAN_COUNTRY_ID]);
-  const found: { id: string; name: string }[] = [];
-  await mapLimit(muIds, 10, async (id) => {
+  const rankedIds = [...new Set(ranked.map((i) => String(i?.mu ?? i?._id ?? "")).filter(Boolean))];
+  await mapLimit(rankedIds, 8, async (id) => {
+    if (found.has(id)) return;
     const mu = await getMuById(id);
     if (mu && wanted.has(String(mu.country))) {
-      found.push({ id, name: mu.name ?? "Jedinica" });
+      found.set(id, mu.name ?? "Jedinica");
     }
   });
-  return found;
+
+  return [...found.entries()].map(([id, name]) => ({ id, name }));
 }
 
 /** Izvuci MU id iz URL-a ili cistog id-a */

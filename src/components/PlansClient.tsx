@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import Dropdown from "@/components/Dropdown";
 import Help from "@/components/Help";
 import { MuChipRow, MuPicker, type MuOpt, type PlanMu } from "@/components/MuChips";
+import { GearChipRow } from "@/components/GearChips";
 import PlacePicker, { type RegionOpt } from "@/components/PlacePicker";
-import { GEAR_SLOTS, gearIconUrl, gearLabel, gearMeta, RARITIES } from "@/lib/gear";
+import { GEAR_SLOTS, gearMeta, RARITIES } from "@/lib/gear";
 import { regionToken } from "@/lib/tags";
 import { avatarStyle, initials } from "@/lib/avatar";
 import { RANK_LABEL, rankOutlineClass } from "@/lib/ranks";
@@ -124,28 +125,7 @@ function sortPlans(list: Plan[], mode: SortMode): Plan[] {
 }
 
 function GearIcons({ gear }: { gear: string[] }) {
-  if (!gear.length) return null;
-  return (
-    <div className="gear-row">
-      <span className="contracts-lbl">Preporucena oprema</span>
-      {gear.map((k) => {
-        const meta = gearMeta(k);
-        const rarity = RARITIES.find((r) => r.value === meta?.rarity);
-        return (
-          <span
-            key={k}
-            className="gear-chip"
-            title={gearLabel(k)}
-            style={rarity ? { borderColor: rarity.color } : undefined}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={gearIconUrl(k)} alt={gearLabel(k)} />
-            <span className="gear-name">{gearLabel(k)}</span>
-          </span>
-        );
-      })}
-    </div>
-  );
+  return <GearChipRow gear={gear} />;
 }
 
 function RichPlanText({ text }: { text: string }) {

@@ -223,6 +223,25 @@ export const notifications = sqliteTable(
   })
 );
 
+export const pushSubscriptions = sqliteTable(
+  "push_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull().unique(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`)
+  },
+  (t) => ({
+    userIdx: index("push_subscriptions_user_idx").on(t.userId)
+  })
+);
+
 // Status igraca (spreman / zauzet / debuff / odsutan)
 export const playerStatus = sqliteTable("player_status", {
   userId: text("user_id")

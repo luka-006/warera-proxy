@@ -12,10 +12,16 @@ import {
 import { createPortal } from "react-dom";
 import {
   getNotifyPermission,
+  isIosDevice,
+  isStandalonePwa,
+  markNotifyPromptDismissed,
   notifyPermissionMessage,
   playNotifySound,
+  registerServiceWorker,
   requestNotifyPermission,
   showOsNotification,
+  subscribeToWebPush,
+  wasNotifyPromptDismissed,
   type NotifyPerm
 } from "@/lib/browser-notify";
 
@@ -41,12 +47,46 @@ export default function NotificationProvider({ children }: { children: ReactNode
   const [mounted, setMounted] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [perm, setPerm] = useState<NotifyPerm>("default");
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [enabling, setEnabling] = useState(false);
 
   const showToast = useCallback((t: Toast, ms = 6000) => {
     setToast(t);
     playNotifySound();
     window.setTimeout(() => setToast(null), ms);
   }, []);
+
+  const enableNotifications = useCallback(async () => {
+    setEnabling(true);
+    try {
+      const p = await requestNotifyPermission();
+      setPerm(p);
+      const msg = notifyPermissionMessage(p);
+      if (msg) showToast(msg, p === "granted" ? 5000 : 8000);
+      if (p === "granted") {
+        const subscribed = await subscribeToWebPush();
+        if (!subscribed) {
+          showToast(
+            {
+              title: "Obavijesti djelomicno aktivne",
+              body: "Dopusteno je, ali push pretplata nije spremljena. Osvjezi i pokusaj ponovo."
+            },
+            7000
+          );
+        }
+        showOsNotification(
+          "HR Ops - notifikacije aktivne",
+          "Ovako ce izgledati ping obavijest.",
+          "hr-ops-test",
+          "/"
+        );
+      }
+      markNotifyPromptDismissed();
+      setShowPrompt(false);
+    } finally {
+      setEnabling(false);
+    }
+  }, [showToast]);
 
   const pushNotification = useCallback(
     async (n: { id: string; title: string; body: string | null; link: string | null }) => {
@@ -66,7 +106,20 @@ export default function NotificationProvider({ children }: { children: ReactNode
   useEffect(() => {
     setMounted(true);
     setPerm(getNotifyPermission());
+    void registerServiceWorker();
   }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (perm === "granted" || wasNotifyPromptDismissed()) return;
+    const t = window.setTimeout(() => setShowPrompt(true), 900);
+    return () => window.clearTimeout(t);
+  }, [mounted, perm]);
+
+  useEffect(() => {
+    if (!mounted || perm !== "granted") return;
+    void subscribeToWebPush().catch(() => undefined);
+  }, [mounted, perm]);
 
   useEffect(() => {
     if (!mounted || !("permissions" in navigator)) return;
@@ -85,20 +138,8 @@ export default function NotificationProvider({ children }: { children: ReactNode
   }, [mounted]);
 
   const requestPermission = useCallback(() => {
-    void requestNotifyPermission().then((p) => {
-      setPerm(p);
-      const msg = notifyPermissionMessage(p);
-      if (msg) showToast(msg, p === "granted" ? 5000 : 8000);
-      if (p === "granted") {
-        showOsNotification(
-          "HR Ops - notifikacije aktivne",
-          "Ovako ce izgledati ping obavijest.",
-          "hr-ops-test",
-          "/"
-        );
-      }
-    });
-  }, [showToast]);
+    void enableNotifications();
+  }, [enableNotifications]);
 
   useEffect(() => {
     function onExternalRequest() {
@@ -147,18 +188,47 @@ export default function NotificationProvider({ children }: { children: ReactNode
   const supported = perm !== "unsupported";
   const ctx: NotificationCtx = { perm, supported, requestPermission };
 
-  const overlay =
-    mounted && perm !== "granted" && supported ? (
-      <button
-        type="button"
-        className="push-enable"
-        onPointerUp={(e) => {
-          e.preventDefault();
-          requestPermission();
-        }}
-      >
-        Ukljuci notifikacije *
-      </button>
+  const iosHint =
+    isIosDevice() && !isStandalonePwa()
+      ? "Na iPhoneu: Share → Dodaj na pocetni zaslon, pa otvori app i dopusti obavijesti."
+      : null;
+
+  const promptModal =
+    showPrompt && perm !== "granted" && supported ? (
+      <div className="notify-prompt-backdrop" role="presentation">
+        <div className="notify-prompt-card reveal" role="dialog" aria-labelledby="notify-prompt-title">
+          <div className="notify-prompt-icon" aria-hidden>
+            &#128276;
+          </div>
+          <h2 id="notify-prompt-title">Dopusti obavijesti</h2>
+          <p>
+            Pingovi i orderi stizu kao prave sistemske obavijesti na mobitelu, cak i kad je app u
+            pozadini.
+          </p>
+          {iosHint && <p className="notify-prompt-hint">{iosHint}</p>}
+          <div className="notify-prompt-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={enabling}
+              onClick={() => void enableNotifications()}
+            >
+              {enabling ? "Ukljucujem..." : "Dopusti obavijesti"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={enabling}
+              onClick={() => {
+                markNotifyPromptDismissed();
+                setShowPrompt(false);
+              }}
+            >
+              Kasnije
+            </button>
+          </div>
+        </div>
+      </div>
     ) : null;
 
   const toastEl = toast ? (
@@ -174,13 +244,14 @@ export default function NotificationProvider({ children }: { children: ReactNode
   return (
     <Ctx.Provider value={ctx}>
       {children}
-      {mounted && createPortal(
-        <>
-          {overlay}
-          {toastEl}
-        </>,
-        document.body
-      )}
+      {mounted &&
+        createPortal(
+          <>
+            {promptModal}
+            {toastEl}
+          </>,
+          document.body
+        )}
     </Ctx.Provider>
   );
 }

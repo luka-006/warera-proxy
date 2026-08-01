@@ -17,7 +17,17 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "HR Operativni Centar",
   description: "Nadzorna ploca i koordinacija hrvatskih igraca War Era.",
-  robots: { index: false, follow: false }
+  robots: { index: false, follow: false },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "HR Ops",
+    statusBarStyle: "black-translucent"
+  },
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/icon-192.png"
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,0 +1,17 @@
+{
+  "name": "HR Operativni Centar",
+  "short_name": "HR Ops",
+  "description": "Koordinacija hrvatskih igraca War Era",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f120e",
+  "theme_color": "#0f120e",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -100,6 +100,18 @@ export default function UnitsClient({
   const [loading, setLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [membersByMu, setMembersByMu] = useState<
+    Record<
+      string,
+      {
+        commanders: Member[];
+        managers: Member[];
+        soldiers: Member[];
+        loading?: boolean;
+        error?: string;
+      }
+    >
+  >({});
   const [q, setQ] = useState("");
   const [pinging, setPinging] = useState<string | null>(null);
 
@@ -109,7 +121,16 @@ export default function UnitsClient({
       const res = await fetch("/api/warera/units");
       const data = await res.json();
       setUnits(data.units ?? []);
-      setMessage(data.message ?? data.error ?? null);
+      const total = data.total ?? data.units?.length ?? 0;
+      const extra =
+        data.catalog && data.catalog !== total
+          ? ` (${total} prikazano, ${data.catalog} u katalogu)`
+          : total
+            ? ` (${total} jedinica)`
+            : "";
+      setMessage(
+        data.message ?? data.error ?? (total ? `Ucitano${extra}` : null)
+      );
     } finally {
       setLoading(false);
     }
@@ -182,6 +203,56 @@ export default function UnitsClient({
     }
   }
 
+  async function toggleMembers(u: Unit) {
+    if (openId === u.id) {
+      setOpenId(null);
+      return;
+    }
+    setOpenId(u.id);
+    if (membersByMu[u.id] || u.commanders.length + u.managers.length + u.soldiers.length > 0) {
+      return;
+    }
+    setMembersByMu((prev) => ({
+      ...prev,
+      [u.id]: { commanders: [], managers: [], soldiers: [], loading: true }
+    }));
+    try {
+      const res = await fetch(`/api/warera/units/members?muId=${encodeURIComponent(u.id)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Greska");
+      setMembersByMu((prev) => ({
+        ...prev,
+        [u.id]: {
+          commanders: data.commanders ?? [],
+          managers: data.managers ?? [],
+          soldiers: data.soldiers ?? [],
+          loading: false
+        }
+      }));
+    } catch (e) {
+      setMembersByMu((prev) => ({
+        ...prev,
+        [u.id]: {
+          commanders: [],
+          managers: [],
+          soldiers: [],
+          loading: false,
+          error: e instanceof Error ? e.message : "Clanovi nisu ucitani."
+        }
+      }));
+    }
+  }
+
+  function membersFor(u: Unit) {
+    const cached = membersByMu[u.id];
+    if (cached) return cached;
+    return {
+      commanders: u.commanders,
+      managers: u.managers,
+      soldiers: u.soldiers
+    };
+  }
+
   const query = q.trim().toLowerCase();
   const visible = query
     ? units.filter((u) => u.name.toLowerCase() === query || u.name.toLowerCase().includes(query))
@@ -228,6 +299,8 @@ export default function UnitsClient({
         {sorted.map((u) => {
           const open = openId === u.id;
           const dmg = fmtDamage(u.weeklyDamage);
+          const mem = membersFor(u);
+          const staff = [...mem.commanders, ...mem.managers];
           return (
             <article key={u.id} className={`unit-card ${open ? "open" : ""}`}>
               <div className="unit-head">
@@ -273,47 +346,54 @@ export default function UnitsClient({
                       {pinging === u.id ? "..." : "PING MU"}
                     </button>
                   )}
-                  <button className="btn btn-sm" onClick={() => setOpenId(open ? null : u.id)}>
+                  <button className="btn btn-sm" onClick={() => toggleMembers(u)}>
                     {open ? "Sakrij" : "Clanovi"}
                   </button>
                 </div>
               </div>
 
-              {u.commanders.length + u.managers.length > 0 && (
-                <div className="unit-section">
-                  <div className="unit-section-lbl">Zapovjednistvo</div>
-                  <div className="member-list">
-                    {[...u.commanders, ...u.managers].map((m) => (
-                      <MemberRow
-                        key={m.id}
-                        m={m}
-                        canCommand={canCommand}
-                        muName={u.name}
-                        onPing={pingMember}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {open && (
                 <div className="unit-section expand-panel">
-                  <div className="unit-section-lbl">Vojnici</div>
-                  <div className="member-list">
-                    {u.soldiers.length === 0 ? (
-                      <span className="muted">Nema prikazanih vojnika</span>
-                    ) : (
-                      u.soldiers.map((m) => (
-                        <MemberRow
-                          key={m.id}
-                          m={m}
-                          canCommand={canCommand}
-                          muName={u.name}
-                          onPing={pingMember}
-                        />
-                      ))
-                    )}
-                  </div>
+                  {mem.loading && <div className="muted">Ucitavanje clanova...</div>}
+                  {mem.error && <div className="notice">{mem.error}</div>}
+                  {!mem.loading && staff.length > 0 && (
+                    <>
+                      <div className="unit-section-lbl">Zapovjednistvo</div>
+                      <div className="member-list">
+                        {staff.map((m) => (
+                          <MemberRow
+                            key={m.id}
+                            m={m}
+                            canCommand={canCommand}
+                            muName={u.name}
+                            onPing={pingMember}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {!mem.loading && (
+                    <>
+                      <div className="unit-section-lbl">Vojnici</div>
+                      <div className="member-list">
+                        {mem.soldiers.length === 0 ? (
+                          <span className="muted">
+                            {mem.error ? "—" : "Nema prikazanih vojnika"}
+                          </span>
+                        ) : (
+                          mem.soldiers.map((m) => (
+                            <MemberRow
+                              key={m.id}
+                              m={m}
+                              canCommand={canCommand}
+                              muName={u.name}
+                              onPing={pingMember}
+                            />
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </article>
